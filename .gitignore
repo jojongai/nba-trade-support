@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.eggs/
+*.egg-info/
+*.egg
+
+# Build / output
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Env and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs and debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Vercel
+.vercel
+
+# Backend cached data (run refresh to regenerate)
+apps/backend/data/*.json

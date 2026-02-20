@@ -1,0 +1,17 @@
+{
+  "name": "nba-trade-support",
+  "private": true,
+  "description": "NBA trade support IDSS for real and fantasy managers",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/frontend",
+    "build": "npm run build --workspace=apps/frontend",
+    "start": "npm run start --workspace=apps/frontend",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
