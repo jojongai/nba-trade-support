@@ -20,12 +20,15 @@ def search_players(
     full_name: str | None = None,
     first_name: str | None = None,
     last_name: str | None = None,
+    active_only: bool = True,
 ) -> list[dict]:
     """
     Find players by name. Pass full_name for exact match, or first_name/last_name
-    for substring match (case-insensitive).
+    for substring match (case-insensitive). By default only active players are returned.
     """
     players = nba_service.get_players()
+    if active_only:
+        players = [p for p in players if p.get("is_active") is True]
     if full_name:
         matches = [p for p in players if p.get("full_name") == full_name]
     elif first_name or last_name:
