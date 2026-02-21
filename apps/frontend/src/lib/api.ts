@@ -1,3 +1,5 @@
+import type { FantasyPlayer } from "@/types/players";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export type Player = {
@@ -7,6 +9,15 @@ export type Player = {
   last_name: string;
   is_active?: boolean;
 };
+
+/** Map backend player to UI fantasy player (no fantasy stats until backend supports them). */
+export function apiPlayerToFantasyPlayer(p: Player): FantasyPlayer {
+  return {
+    id: String(p.id),
+    name: p.full_name,
+    // team, position, fantasRank, ppg, rpg, apg, imageUrl, injuryStatus, tradeValue, volatility left undefined
+  };
+}
 
 export async function searchPlayers(
   fullName?: string,

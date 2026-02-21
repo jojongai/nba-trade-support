@@ -11,3 +11,15 @@ body {
   color: var(--foreground);
   background: var(--background);
 }
+
+/* Dark app theme for NBA Trade Support */
+.app-dark {
+  --app-bg: #0e1117;
+  --app-card: rgba(31, 41, 55, 0.5);
+  --app-border: #374151;
+}
+
+.app-dark body,
+.min-h-screen.bg-\[\#0E1117\] {
+  background-color: #0e1117;
+}
