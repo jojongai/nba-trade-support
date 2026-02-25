@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search } from "lucide-react";
+import { Search, ChevronDown, ChevronUp } from "lucide-react";
 import { fetchRankings, fetchTeams, type RankingRow, type Team } from "@/lib/api";
 import { getSavedPointsWeights } from "@/lib/league-settings";
 
@@ -16,8 +16,28 @@ export default function PlayerRankingsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [rankingFormat, setRankingFormat] = useState<"general" | "saved">("general");
   const [usePerGameStats, setUsePerGameStats] = useState(true);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const PAGE_SIZE = 50;
+
+  const handleSort = (columnId: string) => {
+    if (sortColumn === columnId) {
+      setSortDirection((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortColumn(columnId);
+      setSortDirection("desc");
+    }
+  };
+
+  const SortArrow = ({ columnId }: { columnId: string }) => {
+    if (sortColumn !== columnId) return null;
+    return sortDirection === "desc" ? (
+      <ChevronDown className="ml-0.5 inline-block h-4 w-4 text-orange-400" aria-hidden />
+    ) : (
+      <ChevronUp className="ml-0.5 inline-block h-4 w-4 text-orange-400" aria-hidden />
+    );
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +86,7 @@ export default function PlayerRankingsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, positionFilter, teamFilter]);
+  }, [searchQuery, positionFilter, teamFilter, sortColumn, sortDirection]);
 
   const display = (v: number | string | undefined) =>
     v === undefined || v === "" ? "—" : String(v);
@@ -91,7 +111,7 @@ export default function PlayerRankingsPage() {
   const sortedValuesByStat = useMemo(() => {
     const out: Record<StatKey | PctKey, number[]> = {} as Record<StatKey | PctKey, number[]>;
     for (const key of STAT_KEYS) {
-      const values = filteredRankings
+      const values = rankings
         .map((r) => {
           const v = r[key] ?? 0;
           const gp = r.GP || 1;
@@ -101,13 +121,13 @@ export default function PlayerRankingsPage() {
       out[key] = [...values].sort((a, b) => a - b);
     }
     for (const key of ["FG_PCT", "FT_PCT"] as PctKey[]) {
-      const values = filteredRankings
+      const values = rankings
         .map((r) => r[key] as number | undefined)
         .filter((v): v is number => v != null && !Number.isNaN(v));
       out[key] = [...values].sort((a, b) => a - b);
     }
     return out;
-  }, [filteredRankings, usePerGameStats]);
+  }, [rankings, usePerGameStats]);
 
   const getPercentile = (value: number, sorted: number[], isNegative: boolean): number => {
     if (sorted.length <= 1) return 0.5;
@@ -202,7 +222,7 @@ export default function PlayerRankingsPage() {
   };
 
   const zScoresByPlayerId = useMemo(() => {
-    const players = filteredRankings;
+    const players = rankings;
     const means: Record<string, number> = {};
     const stds: Record<string, number> = {};
 
@@ -231,7 +251,7 @@ export default function PlayerRankingsPage() {
       map.set(row.player_id, zScores);
     }
     return map;
-  }, [filteredRankings, rankingFormat]);
+  }, [rankings, rankingFormat]);
 
   const valueScoreByPlayerId = useMemo(() => {
     const out = new Map<number, number>();
@@ -249,6 +269,53 @@ export default function PlayerRankingsPage() {
 
   const getValueScore = (playerId: number): number | undefined => valueScoreByPlayerId.get(playerId);
 
+  /** Fixed rank (1-based) by value score over the full list; unchanged by filters. */
+  const rankByPlayerId = useMemo(() => {
+    const sorted = [...rankings].sort((a, b) => {
+      const va = getValueScore(a.player_id) ?? -Infinity;
+      const vb = getValueScore(b.player_id) ?? -Infinity;
+      return vb - va;
+    });
+    const map = new Map<number, number>();
+    sorted.forEach((row, i) => map.set(row.player_id, i + 1));
+    return map;
+  }, [rankings, valueScoreByPlayerId]);
+
+  const getSortValue = (row: RankingRow, columnId: string): number | string => {
+    const gp = row.GP || 1;
+    switch (columnId) {
+      case "rank":
+      case "value":
+        return getValueScore(row.player_id) ?? -Infinity;
+      case "player":
+        return (row.full_name ?? "").toLowerCase();
+      case "team":
+        return (row.team_abbreviation ?? "").toLowerCase();
+      case "position":
+        return (row.position ?? "").toLowerCase();
+      case "GP":
+        return Number(row.GP) ?? 0;
+      case "MPG":
+        return Number(row.MPG) ?? 0;
+      case "FG_PCT":
+        return Number(row.FG_PCT) ?? 0;
+      case "FT_PCT":
+        return Number(row.FT_PCT) ?? 0;
+      case "FG3M":
+      case "PTS":
+      case "REB":
+      case "AST":
+      case "STL":
+      case "BLK":
+      case "TOV": {
+        const v = row[columnId as keyof RankingRow] ?? 0;
+        return usePerGameStats ? Number(v) / gp : Number(v);
+      }
+      default:
+        return 0;
+    }
+  };
+
   const rankingsSortedByValue = useMemo(() => {
     return [...filteredRankings].sort((a, b) => {
       const va = getValueScore(a.player_id) ?? -Infinity;
@@ -257,11 +324,24 @@ export default function PlayerRankingsPage() {
     });
   }, [filteredRankings, valueScoreByPlayerId]);
 
-  const totalPages = Math.max(1, Math.ceil(rankingsSortedByValue.length / PAGE_SIZE));
+  const rankingsSorted = useMemo(() => {
+    if (!sortColumn) return rankingsSortedByValue;
+    return [...filteredRankings].sort((a, b) => {
+      const va = getSortValue(a, sortColumn);
+      const vb = getSortValue(b, sortColumn);
+      const isNum = typeof va === "number" && typeof vb === "number";
+      let cmp: number;
+      if (isNum) cmp = (va as number) - (vb as number);
+      else cmp = String(va).localeCompare(String(vb));
+      return sortDirection === "desc" ? -cmp : cmp;
+    });
+  }, [filteredRankings, rankingsSortedByValue, sortColumn, sortDirection, usePerGameStats]);
+
+  const totalPages = Math.max(1, Math.ceil(rankingsSorted.length / PAGE_SIZE));
   const paginatedRankings = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    return rankingsSortedByValue.slice(start, start + PAGE_SIZE);
-  }, [rankingsSortedByValue, currentPage]);
+    return rankingsSorted.slice(start, start + PAGE_SIZE);
+  }, [rankingsSorted, currentPage]);
 
   return (
     <div className="min-h-screen bg-[#0E1117] py-8">
@@ -389,22 +469,86 @@ export default function PlayerRankingsPage() {
             <table className="w-full">
               <thead className="sticky top-0 z-10 bg-gray-900 border-b border-gray-700 shadow-[0_1px_3px_0_rgba(0,0,0,0.3)]">
                 <tr>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Rank</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Player</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Team</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Pos</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">GP</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">MPG</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">FG%</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">FT%</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "3PG" : "3PM"}</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "PPG" : "PTS"}</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "RPG" : "REB"}</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "APG" : "AST"}</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "STLPG" : "STL"}</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "BLKPG" : "BLK"}</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "TO/PG" : "TO"}</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Value</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("rank")} className="inline-flex items-center hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      Rank <SortArrow columnId="rank" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("player")} className="inline-flex items-center hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      Player <SortArrow columnId="player" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("team")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      Team <SortArrow columnId="team" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("position")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      Pos <SortArrow columnId="position" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("GP")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      GP <SortArrow columnId="GP" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("MPG")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      MPG <SortArrow columnId="MPG" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("FG_PCT")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      FG% <SortArrow columnId="FG_PCT" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("FT_PCT")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      FT% <SortArrow columnId="FT_PCT" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("FG3M")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      {usePerGameStats ? "3PG" : "3PM"} <SortArrow columnId="FG3M" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("PTS")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      {usePerGameStats ? "PPG" : "PTS"} <SortArrow columnId="PTS" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("REB")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      {usePerGameStats ? "RPG" : "REB"} <SortArrow columnId="REB" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("AST")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      {usePerGameStats ? "APG" : "AST"} <SortArrow columnId="AST" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("STL")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      {usePerGameStats ? "STLPG" : "STL"} <SortArrow columnId="STL" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("BLK")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      {usePerGameStats ? "BLKPG" : "BLK"} <SortArrow columnId="BLK" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("TOV")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      {usePerGameStats ? "TO/PG" : "TO"} <SortArrow columnId="TOV" />
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <button type="button" onClick={() => handleSort("value")} className="inline-flex items-center justify-center w-full hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-inset rounded">
+                      Value <SortArrow columnId="value" />
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
@@ -438,7 +582,7 @@ export default function PlayerRankingsPage() {
                 )}
                 {!loading && !error && filteredRankings.length > 0 && paginatedRankings.map((row, index) => (
                   <tr key={row.player_id} className="hover:bg-gray-800/50">
-                    <td className="px-3 py-3 text-center text-gray-300">{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
+                    <td className="px-3 py-3 text-center text-gray-300">{rankByPlayerId.get(row.player_id) ?? "—"}</td>
                     <td className="px-3 py-3 font-medium text-white">{row.full_name}</td>
                     <td className="px-3 py-3 text-center text-gray-400">{display(row.team_abbreviation)}</td>
                     <td className="px-3 py-3 text-center text-gray-400">{display(row.position)}</td>

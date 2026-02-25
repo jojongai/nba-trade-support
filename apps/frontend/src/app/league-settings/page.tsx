@@ -320,9 +320,6 @@ export default function LeagueSettingsPage() {
           <h1 className="text-3xl font-bold text-white mb-2">
             League Settings
           </h1>
-          <p className="text-gray-400">
-            Configure your fantasy league scoring format
-          </p>
         </div>
 
         <div className="space-y-6">
