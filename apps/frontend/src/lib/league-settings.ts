@@ -27,6 +27,19 @@ export interface RosterSettings {
   bench: number;
 }
 
+/** Default roster slot counts when none are saved (e.g. 1 PG, 1 SG, ..., 2 UTIL, 3 bench). */
+export const DEFAULT_ROSTER_SETTINGS: RosterSettings = {
+  pg: 1,
+  sg: 1,
+  sf: 1,
+  pf: 1,
+  c: 1,
+  g: 1,
+  f: 1,
+  util: 2,
+  bench: 3,
+};
+
 export interface LeagueSettings {
   leagueName: string;
   leagueFormat: "points" | "category";

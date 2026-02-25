@@ -17,6 +17,7 @@ import {
   type CategorySettings,
   type LeagueSettings,
   type RosterSettings,
+  DEFAULT_ROSTER_SETTINGS,
 } from "@/lib/league-settings";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { ThemedNumberInput } from "@/components/ThemedNumberInput";
@@ -55,18 +56,6 @@ const DEFAULT_CATEGORIES: CategorySettings[] = [
   { name: "Double-Doubles", enabled: false },
   { name: "Triple-Doubles", enabled: false },
 ];
-
-const DEFAULT_ROSTER_SETTINGS: RosterSettings = {
-  pg: 1,
-  sg: 1,
-  sf: 1,
-  pf: 1,
-  c: 1,
-  g: 1,
-  f: 1,
-  util: 2,
-  bench: 3,
-};
 
 const PRESET_FORMATS = {
   espn: {
