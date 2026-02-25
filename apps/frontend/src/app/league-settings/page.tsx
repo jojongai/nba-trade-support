@@ -16,6 +16,7 @@ import {
   type CategorySettings,
   type LeagueSettings,
 } from "@/lib/league-settings";
+import { ThemedSelect } from "@/components/ThemedSelect";
 
 const DEFAULT_POINTS_SETTINGS: PointsSettings = {
   points: 1,
@@ -55,17 +56,17 @@ const DEFAULT_CATEGORIES: CategorySettings[] = [
 const PRESET_FORMATS = {
   espn: {
     points: 1,
-    assists: 1,
+    assists: 2,
     rebounds: 1,
     offensiveRebounds: 0,
     defensiveRebounds: 0,
-    steals: 1,
-    blocks: 1,
-    turnovers: -1,
-    fieldGoalsMade: 0,
-    fieldGoalsAttempted: 0,
+    steals: 4,
+    blocks: 4,
+    turnovers: -2,
+    fieldGoalsMade: 2,
+    fieldGoalsAttempted: -1,
     freeThrowsMade: 1,
-    freeThrowsAttempted: 0,
+    freeThrowsAttempted: -1,
     threePointersMade: 1,
     doubleDoubles: 0,
     tripleDoubles: 0,
@@ -74,19 +75,19 @@ const PRESET_FORMATS = {
     minutesPlayed: 0,
   },
   yahoo: {
-    points: 0.5,
+    points: 1,
     assists: 1.5,
-    rebounds: 1.5,
+    rebounds: 1.2,
     offensiveRebounds: 0,
     defensiveRebounds: 0,
     steals: 3,
     blocks: 3,
     turnovers: -1,
-    fieldGoalsMade: 2,
-    fieldGoalsAttempted: -1,
-    freeThrowsMade: 1,
-    freeThrowsAttempted: -1,
-    threePointersMade: 3,
+    fieldGoalsMade: 0,
+    fieldGoalsAttempted: 0,
+    freeThrowsMade: 0,
+    freeThrowsAttempted: 0,
+    threePointersMade: 0,
     doubleDoubles: 0,
     tripleDoubles: 0,
     technicalFouls: 0,
@@ -96,19 +97,19 @@ const PRESET_FORMATS = {
   sleeper: {
     points: 1,
     assists: 1.5,
-    rebounds: 1.25,
+    rebounds: 1.2,
     offensiveRebounds: 0,
     defensiveRebounds: 0,
-    steals: 2,
-    blocks: 2,
+    steals: 3,
+    blocks: 3,
     turnovers: -1,
     fieldGoalsMade: 0,
     fieldGoalsAttempted: 0,
     freeThrowsMade: 0,
     freeThrowsAttempted: 0,
-    threePointersMade: 0.5,
-    doubleDoubles: 1.5,
-    tripleDoubles: 3,
+    threePointersMade: 0,
+    doubleDoubles: 0,
+    tripleDoubles: 0,
     technicalFouls: 0,
     flagrantFouls: 0,
     minutesPlayed: 0,
@@ -389,24 +390,17 @@ export default function LeagueSettingsPage() {
                     Points Settings
                   </h2>
                 </div>
-                <select
+                <ThemedSelect
                   value={selectedPreset}
-                  onChange={(e) =>
-                    handlePresetChange(
-                      e.target.value as
-                        | "custom"
-                        | "espn"
-                        | "yahoo"
-                        | "sleeper"
-                    )
-                  }
-                  className="px-4 py-2 bg-gray-900/50 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-orange-500"
-                >
-                  <option value="custom">Custom</option>
-                  <option value="espn">ESPN Preset</option>
-                  <option value="yahoo">Yahoo Preset</option>
-                  <option value="sleeper">Sleeper Preset</option>
-                </select>
+                  onChange={(v) => handlePresetChange(v as "custom" | "espn" | "yahoo" | "sleeper")}
+                  options={[
+                    { value: "custom", label: "Custom" },
+                    { value: "espn", label: "ESPN Preset" },
+                    { value: "yahoo", label: "Yahoo Preset" },
+                    { value: "sleeper", label: "Sleeper Preset" },
+                  ]}
+                  className="w-40"
+                />
               </div>
 
               <p className="text-sm text-gray-400 mb-6">

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Search, ChevronDown, ChevronUp } from "lucide-react";
 import { fetchRankings, fetchTeams, type RankingRow, type Team } from "@/lib/api";
 import { getSavedPointsWeights } from "@/lib/league-settings";
+import { ThemedSelect } from "@/components/ThemedSelect";
 
 export default function PlayerRankingsPage() {
   const [rankings, setRankings] = useState<RankingRow[]>([]);
@@ -390,32 +391,26 @@ export default function PlayerRankingsPage() {
               />
             </div>
             <div className="relative min-w-0">
-              <select
+              <ThemedSelect
                 value={positionFilter}
-                onChange={(e) => setPositionFilter(e.target.value)}
-                className="w-full h-10 pl-3 pr-8 text-sm bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500 appearance-none"
-              >
-                <option value="">All Positions</option>
-                {positions.map((pos) => (
-                  <option key={pos} value={pos}>
-                    {pos}
-                  </option>
-                ))}
-              </select>
+                onChange={setPositionFilter}
+                placeholder="All Positions"
+                options={[
+                  { value: "", label: "All Positions" },
+                  ...positions.map((pos) => ({ value: pos, label: pos })),
+                ]}
+              />
             </div>
             <div className="relative min-w-0">
-              <select
+              <ThemedSelect
                 value={teamFilter}
-                onChange={(e) => setTeamFilter(e.target.value)}
-                className="w-full h-10 pl-3 pr-8 text-sm bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500 appearance-none"
-              >
-                <option value="">All Teams</option>
-                {teams.map((t) => (
-                  <option key={t.id} value={t.abbreviation}>
-                    {t.full_name}
-                  </option>
-                ))}
-              </select>
+                onChange={setTeamFilter}
+                placeholder="All Teams"
+                options={[
+                  { value: "", label: "All Teams" },
+                  ...teams.map((t) => ({ value: t.abbreviation, label: t.full_name })),
+                ]}
+              />
             </div>
             <div className="min-w-0">
               <button
