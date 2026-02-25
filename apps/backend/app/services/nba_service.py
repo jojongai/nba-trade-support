@@ -15,6 +15,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 TEAMS_FILE = DATA_DIR / "teams.json"
 PLAYERS_FILE = DATA_DIR / "players.json"
 CAREER_STATS_FILE = DATA_DIR / "career_stats.json"
+PLAYER_POSITIONS_FILE = DATA_DIR / "player_positions.json"
 
 
 def _ensure_data_dir() -> None:
@@ -32,6 +33,17 @@ def _save_json(path: Path, data: list) -> None:
     _ensure_data_dir()
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+def _load_positions() -> dict[int, str]:
+    """Load player_id -> position from data/player_positions.json. Keys stored as str in JSON."""
+    if not PLAYER_POSITIONS_FILE.exists():
+        return {}
+    with open(PLAYER_POSITIONS_FILE, encoding="utf-8") as f:
+        raw = json.load(f)
+    if not isinstance(raw, dict):
+        return {}
+    return {int(k): str(v) for k, v in raw.items()}
 
 
 def fetch_teams_from_api() -> list[dict]:
@@ -83,6 +95,38 @@ def refresh_static_data() -> dict[str, int]:
     _save_json(TEAMS_FILE, teams_data)
     _save_json(PLAYERS_FILE, players_data)
     return {"teams": len(teams_data), "players": len(players_data)}
+
+
+def refresh_player_positions(season: str = "2024-25") -> dict:
+    """
+    Fetch current roster (with POSITION) for every team via CommonTeamRoster (30 requests).
+    Saves player_id -> position to data/player_positions.json. Run once or periodically;
+    GET /players/rankings then reads from the cache for the Pos column.
+    """
+    from nba_api.stats.endpoints import commonteamroster  # type: ignore[import-untyped]
+
+    teams = get_teams(use_cache=True)
+    id_to_position: dict[int, str] = {}
+    for t in teams:
+        tid = t.get("id")
+        if tid is None:
+            continue
+        try:
+            roster = commonteamroster.CommonTeamRoster(team_id=tid, season=season)
+            df = roster.common_team_roster.get_data_frame()
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    pid = row.get("PLAYER_ID")
+                    pos = row.get("POSITION")
+                    if pid is not None and pos and str(pos).strip():
+                        id_to_position[int(pid)] = str(pos).strip()
+        except Exception:
+            continue
+        time.sleep(0.3)
+    _ensure_data_dir()
+    with open(PLAYER_POSITIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump({str(k): v for k, v in id_to_position.items()}, f, indent=2)
+    return {"ok": True, "players_with_position": len(id_to_position)}
 
 
 def get_player_career(player_id: str | int, use_cache: bool = True) -> list[dict]:
@@ -173,6 +217,11 @@ def get_rankings_from_cache() -> list[dict]:
             r["MPG"] = round((r.get("MIN") or 0) / gp, 1) if gp else 0
             r["full_name"] = id_to_name.get(int(r.get("PLAYER_ID", 0)), "")
             r["player_id"] = r.get("PLAYER_ID")
+            r["team_abbreviation"] = r.get("TEAM_ABBREVIATION") or ""
+        id_to_position = _load_positions()
+        for r in latest:
+            pid = int(r.get("player_id") or r.get("PLAYER_ID", 0))
+            r["position"] = id_to_position.get(pid, "") or "—"
         latest.sort(key=lambda x: (x.get("PPG") or 0), reverse=True)
         for i, r in enumerate(latest, start=1):
             r["rank"] = i
@@ -188,6 +237,7 @@ def get_rankings_from_cache() -> list[dict]:
             "first_name": p.get("first_name") or "",
             "last_name": p.get("last_name") or "",
             "team_abbreviation": "",
+            "position": _load_positions().get(int(p.get("id") or 0), "") or "—",
             "GP": 0,
             "MPG": 0,
             "FG_PCT": 0,

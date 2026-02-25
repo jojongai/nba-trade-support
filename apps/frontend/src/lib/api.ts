@@ -39,6 +39,7 @@ export type RankingRow = {
   player_id: number;
   full_name: string;
   team_abbreviation?: string;
+  position?: string;
   rank: number;
   GP?: number;
   MPG?: number;
@@ -56,5 +57,21 @@ export type RankingRow = {
 export async function fetchRankings(): Promise<RankingRow[]> {
   const res = await fetch(`${API_BASE}/players/rankings`);
   if (!res.ok) throw new Error("Failed to fetch rankings");
+  return res.json();
+}
+
+export type Team = {
+  id: number;
+  full_name: string;
+  abbreviation: string;
+  nickname?: string;
+  city?: string;
+  state?: string;
+  year_founded?: number;
+};
+
+export async function fetchTeams(): Promise<Team[]> {
+  const res = await fetch(`${API_BASE}/teams`);
+  if (!res.ok) throw new Error("Failed to fetch teams");
   return res.json();
 }

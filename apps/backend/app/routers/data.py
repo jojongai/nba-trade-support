@@ -28,3 +28,17 @@ def refresh_careers(delay_seconds: float = 0.5) -> dict:
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to build career cache: {e!s}") from e
+
+
+@router.post("/refresh-positions")
+def refresh_positions(season: str = "2024-25") -> dict:
+    """
+    Build player position cache: fetch roster (with POSITION) for every team via CommonTeamRoster
+    (30 requests), save to data/player_positions.json. Run once or periodically. After this,
+    GET /players/rankings uses the cache and the Pos column is populated.
+    """
+    try:
+        result = nba_service.refresh_player_positions(season=season)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to refresh positions: {e!s}") from e
