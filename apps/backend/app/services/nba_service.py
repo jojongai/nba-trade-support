@@ -189,11 +189,43 @@ def build_career_cache(delay_seconds: float = 0.5) -> dict:
 def get_rankings_from_cache() -> list[dict]:
     """
     Rankings for GET /players/rankings. When career_stats.json exists, returns one row per
-    player (latest season) with PPG/RPG/APG/rank and full_name from players.json.
+    player for season 2025-26 only, with PPG/RPG/APG/rank and full_name from players.json.
     When cache is empty, returns active players from players.json with names only.
     """
+    RANKINGS_SEASON = "2025-26"
     all_stats = get_all_career_stats()
     if all_stats:
+        # Only use 2025-26 season
+        season_stats = [r for r in all_stats if r.get("SEASON_ID") == RANKINGS_SEASON]
+        if not season_stats:
+            # Fallback: no rows for that season, return active players with zeroed stats
+            players = get_players(use_cache=True)
+            active = [p for p in players if p.get("is_active") is True]
+            id_to_position = _load_positions()
+            active.sort(key=lambda p: (p.get("full_name") or "").lower())
+            return [
+                {
+                    "player_id": p.get("id"),
+                    "full_name": p.get("full_name") or "",
+                    "first_name": p.get("first_name") or "",
+                    "last_name": p.get("last_name") or "",
+                    "team_abbreviation": "",
+                    "position": id_to_position.get(int(p.get("id") or 0), "") or "—",
+                    "GP": 0,
+                    "MPG": 0,
+                    "FG_PCT": 0,
+                    "FT_PCT": 0,
+                    "FG3M": 0,
+                    "PTS": 0,
+                    "REB": 0,
+                    "AST": 0,
+                    "STL": 0,
+                    "BLK": 0,
+                    "TOV": 0,
+                    "rank": i,
+                }
+                for i, p in enumerate(active, start=1)
+            ]
         # Build player_id -> full_name from players.json (career_stats has no names)
         players = get_players(use_cache=True)
         id_to_name: dict[int, str] = {}
@@ -201,14 +233,73 @@ def get_rankings_from_cache() -> list[dict]:
             pid = p.get("id")
             if pid is not None:
                 id_to_name[int(pid)] = p.get("full_name") or ""
-        # Group by PLAYER_ID, take latest season, add PPG/RPG/APG, sort by PPG
+        # One row per player (2025-26 only; aggregate if multiple rows e.g. traded)
         by_player: dict[int, list[dict]] = {}
-        for r in all_stats:
+        for r in season_stats:
             pid = int(r.get("PLAYER_ID", 0))
             if pid not in by_player:
                 by_player[pid] = []
             by_player[pid].append(r)
-        latest = [seasons[-1] for seasons in by_player.values() if seasons]
+        latest = []
+        sum_keys = ("GP", "GS", "MIN", "FGM", "FGA", "FG3M", "FG3A", "FTM", "FTA", "OREB", "DREB", "REB", "AST", "STL", "BLK", "TOV", "PF", "PTS")
+        for pid, rows in by_player.items():
+            if not rows:
+                continue
+            r0 = dict(rows[0])
+            if len(rows) > 1:
+                for k in sum_keys:
+                    if k in r0 and isinstance(r0.get(k), (int, float)):
+                        r0[k] = sum(row.get(k) or 0 for row in rows)
+                if r0.get("FGA"):
+                    r0["FG_PCT"] = (r0.get("FGM") or 0) / r0["FGA"]
+                if r0.get("FG3A"):
+                    r0["FG3_PCT"] = (r0.get("FG3M") or 0) / r0["FG3A"]
+                if r0.get("FTA"):
+                    r0["FT_PCT"] = (r0.get("FTM") or 0) / r0["FTA"]
+                # Use team from segment with most games
+                best = max(rows, key=lambda x: x.get("GP") or 0)
+                r0["TEAM_ABBREVIATION"] = best.get("TEAM_ABBREVIATION") or ""
+            r0["PLAYER_ID"] = pid
+            latest.append(r0)
+        # Add active players who have no 2025-26 stats — default all values to 0
+        active_ids = {int(p.get("id")) for p in players if p.get("is_active") is True and p.get("id") is not None}
+        have_season = {int(r.get("PLAYER_ID", 0)) for r in latest}
+        for pid in active_ids:
+            if pid in have_season:
+                continue
+            p = next((x for x in players if x.get("id") == pid), None)
+            if not p:
+                continue
+            latest.append({
+                "PLAYER_ID": pid,
+                "player_id": pid,
+                "full_name": p.get("full_name") or "",
+                "first_name": p.get("first_name") or "",
+                "last_name": p.get("last_name") or "",
+                "TEAM_ABBREVIATION": "",
+                "team_abbreviation": "",
+                "GP": 0,
+                "GS": 0,
+                "MIN": 0,
+                "FGM": 0,
+                "FGA": 0,
+                "FG_PCT": 0,
+                "FG3M": 0,
+                "FG3A": 0,
+                "FG3_PCT": 0,
+                "FTM": 0,
+                "FTA": 0,
+                "FT_PCT": 0,
+                "OREB": 0,
+                "DREB": 0,
+                "REB": 0,
+                "AST": 0,
+                "STL": 0,
+                "BLK": 0,
+                "TOV": 0,
+                "PF": 0,
+                "PTS": 0,
+            })
         for r in latest:
             gp = (r.get("GP") or 0) or 1
             r.setdefault("PPG", round((r.get("PTS") or 0) / gp, 1) if gp else 0)

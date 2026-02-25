@@ -45,6 +45,10 @@ export type RankingRow = {
   MPG?: number;
   FG_PCT?: number;
   FT_PCT?: number;
+  FGM?: number;
+  FGA?: number;
+  FTM?: number;
+  FTA?: number;
   FG3M?: number;
   PTS?: number;
   REB?: number;

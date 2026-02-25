@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Search } from "lucide-react";
 import { fetchRankings, fetchTeams, type RankingRow, type Team } from "@/lib/api";
+import { getSavedPointsWeights } from "@/lib/league-settings";
 
 export default function PlayerRankingsPage() {
   const [rankings, setRankings] = useState<RankingRow[]>([]);
@@ -14,7 +15,7 @@ export default function PlayerRankingsPage() {
   const [teamFilter, setTeamFilter] = useState<string>("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rankingFormat, setRankingFormat] = useState<"general" | "saved">("general");
-  const [usePerGameStats, setUsePerGameStats] = useState(false);
+  const [usePerGameStats, setUsePerGameStats] = useState(true);
 
   const PAGE_SIZE = 50;
 
@@ -63,12 +64,6 @@ export default function PlayerRankingsPage() {
     });
   }, [rankings, searchQuery, positionFilter, teamFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRankings.length / PAGE_SIZE));
-  const paginatedRankings = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredRankings.slice(start, start + PAGE_SIZE);
-  }, [filteredRankings, currentPage]);
-
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, positionFilter, teamFilter]);
@@ -88,6 +83,186 @@ export default function PlayerRankingsPage() {
     return usePerGameStats ? (Number(v) / gp) : Number(v);
   };
 
+  type StatKey = "FG3M" | "PTS" | "REB" | "AST" | "STL" | "BLK" | "TOV";
+  type PctKey = "FG_PCT" | "FT_PCT";
+  const STAT_KEYS: StatKey[] = ["FG3M", "PTS", "REB", "AST", "STL", "BLK", "TOV"];
+  const NEGATIVE_STAT = new Set<StatKey>(["TOV"]);
+
+  const sortedValuesByStat = useMemo(() => {
+    const out: Record<StatKey | PctKey, number[]> = {} as Record<StatKey | PctKey, number[]>;
+    for (const key of STAT_KEYS) {
+      const values = filteredRankings
+        .map((r) => {
+          const v = r[key] ?? 0;
+          const gp = r.GP || 1;
+          return usePerGameStats ? Number(v) / gp : Number(v);
+        })
+        .filter((v) => v != null && !Number.isNaN(v));
+      out[key] = [...values].sort((a, b) => a - b);
+    }
+    for (const key of ["FG_PCT", "FT_PCT"] as PctKey[]) {
+      const values = filteredRankings
+        .map((r) => r[key] as number | undefined)
+        .filter((v): v is number => v != null && !Number.isNaN(v));
+      out[key] = [...values].sort((a, b) => a - b);
+    }
+    return out;
+  }, [filteredRankings, usePerGameStats]);
+
+  const getPercentile = (value: number, sorted: number[], isNegative: boolean): number => {
+    if (sorted.length <= 1) return 0.5;
+    const n = sorted.length;
+    const idx = sorted.lastIndexOf(value);
+    const index = idx === -1 ? sorted.findIndex((x) => x >= value) : idx;
+    const i = index === -1 ? n - 1 : index;
+    const p = i / (n - 1);
+    return isNegative ? 1 - p : p;
+  };
+
+  const getPercentileColorClass = (percentile: number): string => {
+    if (percentile <= 0.15) return "text-red-500";
+    if (percentile <= 0.30) return "text-red-700";
+    if (percentile >= 0.90) return "text-green-400";
+    if (percentile >= 0.80) return "text-green-700";
+    return "text-gray-400";
+  };
+
+  const getStatCellClass = (row: RankingRow, key: StatKey): string => {
+    const value = getStatValue(row, key);
+    const sorted = sortedValuesByStat[key];
+    if (!sorted?.length) return "text-gray-400";
+    const p = getPercentile(value, sorted, NEGATIVE_STAT.has(key));
+    return getPercentileColorClass(p);
+  };
+
+  const getPctCellClass = (row: RankingRow, key: PctKey): string => {
+    const value = Number(row[key]);
+    const sorted = sortedValuesByStat[key];
+    if (!sorted?.length || value == null || Number.isNaN(value)) return "text-gray-400";
+    const p = getPercentile(value, sorted, false);
+    return getPercentileColorClass(p);
+  };
+
+  // --- Value score: points league uses FGM/FGA/FTM/FTA; categories use FG_PCT/FT_PCT ---
+  const VALUE_STAT_KEYS_GENERAL = ["PTS", "REB", "AST", "STL", "BLK", "FG3M", "FG_PCT", "FT_PCT", "TOV"] as const;
+  const VALUE_STAT_KEYS_POINTS = ["PTS", "REB", "AST", "STL", "BLK", "FG3M", "TOV", "FGM", "FGA", "FTM", "FTA"] as const;
+  type ValueStatKeyGeneral = (typeof VALUE_STAT_KEYS_GENERAL)[number];
+  type ValueStatKeyPoints = (typeof VALUE_STAT_KEYS_POINTS)[number];
+  type ValueStatKey = ValueStatKeyGeneral | ValueStatKeyPoints;
+
+  const valueStatKeys = rankingFormat === "saved" ? VALUE_STAT_KEYS_POINTS : VALUE_STAT_KEYS_GENERAL;
+  const VALUE_LOWER_IS_BETTER_GENERAL = new Set<ValueStatKey>(["TOV"]);
+  const VALUE_LOWER_IS_BETTER_POINTS = new Set<ValueStatKey>(["TOV", "FGA", "FTA"]);
+  const valueLowerIsBetter = rankingFormat === "saved" ? VALUE_LOWER_IS_BETTER_POINTS : VALUE_LOWER_IS_BETTER_GENERAL;
+
+  /** Map league-settings point keys to ranking row stat keys (for points/saved mode). */
+  const SAVED_WEIGHT_MAP: Partial<Record<ValueStatKeyPoints, string>> = {
+    PTS: "points",
+    REB: "rebounds",
+    AST: "assists",
+    STL: "steals",
+    BLK: "blocks",
+    TOV: "turnovers",
+    FG3M: "threePointersMade",
+    FGM: "fieldGoalsMade",
+    FGA: "fieldGoalsAttempted",
+    FTM: "freeThrowsMade",
+    FTA: "freeThrowsAttempted",
+  };
+
+  const valueWeights: Record<ValueStatKey, number> = useMemo(() => {
+    if (rankingFormat === "saved") {
+      const saved = getSavedPointsWeights();
+      if (saved) {
+        const w: Record<ValueStatKey, number> = {
+          PTS: 1, REB: 1, AST: 1, STL: 1, BLK: 1, FG3M: 1, TOV: 1,
+          FGM: 1, FGA: 1, FTM: 1, FTA: 1,
+          FG_PCT: 1, FT_PCT: 1,
+        };
+        for (const [statKey, settingKey] of Object.entries(SAVED_WEIGHT_MAP)) {
+          const v = saved[settingKey];
+          if (typeof v === "number") {
+            w[statKey as ValueStatKeyPoints] = (statKey === "TOV" || statKey === "FGA" || statKey === "FTA") ? Math.abs(v) : v;
+          }
+        }
+        return w;
+      }
+    }
+    return {
+      PTS: 1, REB: 1, AST: 1, STL: 1, BLK: 1, FG3M: 1, FG_PCT: 1, FT_PCT: 1, TOV: 1,
+      FGM: 1, FGA: 1, FTM: 1, FTA: 1,
+    };
+  }, [rankingFormat]);
+
+  const getValueStatNumber = (row: RankingRow, key: ValueStatKey): number => {
+    if (key === "FG_PCT" || key === "FT_PCT") return Number(row[key]) ?? 0;
+    const v = row[key as keyof RankingRow] ?? 0;
+    const gp = row.GP || 1;
+    return Number(v) / gp;
+  };
+
+  const zScoresByPlayerId = useMemo(() => {
+    const players = filteredRankings;
+    const means: Record<string, number> = {};
+    const stds: Record<string, number> = {};
+
+    for (const stat of valueStatKeys) {
+      const values = players
+        .map((r) => getValueStatNumber(r, stat))
+        .filter((v) => v != null && !Number.isNaN(v));
+      const n = values.length;
+      const mean = n ? values.reduce((a, b) => a + b, 0) / n : 0;
+      means[stat] = mean;
+      const variance = n ? values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / n : 0;
+      stds[stat] = Math.sqrt(variance) || 1e-6;
+    }
+
+    const map = new Map<number, Record<string, number>>();
+    for (const row of players) {
+      const zScores: Record<string, number> = {};
+      for (const stat of valueStatKeys) {
+        const v = getValueStatNumber(row, stat);
+        const mean = means[stat];
+        const std = stds[stat];
+        const lowerIsBetter = valueLowerIsBetter.has(stat);
+        const z = lowerIsBetter ? (mean - v) / std : (v - mean) / std;
+        zScores[stat] = z;
+      }
+      map.set(row.player_id, zScores);
+    }
+    return map;
+  }, [filteredRankings, rankingFormat]);
+
+  const valueScoreByPlayerId = useMemo(() => {
+    const out = new Map<number, number>();
+    const totalWeight = valueStatKeys.reduce((s, k) => s + (valueWeights[k] ?? 0), 0);
+    if (!totalWeight) return out;
+    for (const [playerId, zScores] of zScoresByPlayerId) {
+      let sum = 0;
+      for (const stat of valueStatKeys) {
+        sum += (zScores[stat] ?? 0) * (valueWeights[stat] ?? 0);
+      }
+      out.set(playerId, sum / totalWeight);
+    }
+    return out;
+  }, [zScoresByPlayerId, valueWeights, rankingFormat]);
+
+  const getValueScore = (playerId: number): number | undefined => valueScoreByPlayerId.get(playerId);
+
+  const rankingsSortedByValue = useMemo(() => {
+    return [...filteredRankings].sort((a, b) => {
+      const va = getValueScore(a.player_id) ?? -Infinity;
+      const vb = getValueScore(b.player_id) ?? -Infinity;
+      return vb - va;
+    });
+  }, [filteredRankings, valueScoreByPlayerId]);
+
+  const totalPages = Math.max(1, Math.ceil(rankingsSortedByValue.length / PAGE_SIZE));
+  const paginatedRankings = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return rankingsSortedByValue.slice(start, start + PAGE_SIZE);
+  }, [rankingsSortedByValue, currentPage]);
+
   return (
     <div className="min-h-screen bg-[#0E1117] py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -105,7 +280,7 @@ export default function PlayerRankingsPage() {
                   : "border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-700/50 hover:text-gray-300"
               }`}
             >
-              General
+              Categories
             </button>
             <button
               type="button"
@@ -116,7 +291,7 @@ export default function PlayerRankingsPage() {
                   : "border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-700/50 hover:text-gray-300"
               }`}
             >
-              Saved Settings
+              Points (Saved Settings)
             </button>
           </div>
           </div>
@@ -212,7 +387,7 @@ export default function PlayerRankingsPage() {
         <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-900/50 border-b border-gray-700">
+              <thead className="sticky top-0 z-10 bg-gray-900 border-b border-gray-700 shadow-[0_1px_3px_0_rgba(0,0,0,0.3)]">
                 <tr>
                   <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Rank</th>
                   <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Player</th>
@@ -229,54 +404,61 @@ export default function PlayerRankingsPage() {
                   <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "STLPG" : "STL"}</th>
                   <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "BLKPG" : "BLK"}</th>
                   <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "TO/PG" : "TO"}</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
                 {loading && (
                   <tr>
-                    <td colSpan={15} className="px-3 py-16 text-center text-gray-500">
+                    <td colSpan={16} className="px-3 py-16 text-center text-gray-500">
                       Loading…
                     </td>
                   </tr>
                 )}
                 {error && (
                   <tr>
-                    <td colSpan={15} className="px-3 py-16 text-center text-red-400">
+                    <td colSpan={16} className="px-3 py-16 text-center text-red-400">
                       {error}
                     </td>
                   </tr>
                 )}
                 {!loading && !error && rankings.length === 0 && (
                   <tr>
-                    <td colSpan={15} className="px-3 py-16 text-center text-gray-500">
+                    <td colSpan={16} className="px-3 py-16 text-center text-gray-500">
                       No rankings data available.
                     </td>
                   </tr>
                 )}
                 {!loading && !error && filteredRankings.length === 0 && rankings.length > 0 && (
                   <tr>
-                    <td colSpan={15} className="px-3 py-16 text-center text-gray-500">
+                    <td colSpan={16} className="px-3 py-16 text-center text-gray-500">
                       No players match your filters.
                     </td>
                   </tr>
                 )}
-                {!loading && !error && filteredRankings.length > 0 && paginatedRankings.map((row) => (
+                {!loading && !error && filteredRankings.length > 0 && paginatedRankings.map((row, index) => (
                   <tr key={row.player_id} className="hover:bg-gray-800/50">
-                    <td className="px-3 py-3 text-center text-gray-300">{row.rank}</td>
+                    <td className="px-3 py-3 text-center text-gray-300">{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
                     <td className="px-3 py-3 font-medium text-white">{row.full_name}</td>
                     <td className="px-3 py-3 text-center text-gray-400">{display(row.team_abbreviation)}</td>
                     <td className="px-3 py-3 text-center text-gray-400">{display(row.position)}</td>
                     <td className="px-3 py-3 text-center text-gray-400">{displayNum(row.GP)}</td>
                     <td className="px-3 py-3 text-center text-gray-400">{displayNum(row.MPG)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayPct(row.FG_PCT)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayPct(row.FT_PCT)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "FG3M"), usePerGameStats)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "PTS"), usePerGameStats)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "REB"), usePerGameStats)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "AST"), usePerGameStats)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "STL"), usePerGameStats)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "BLK"), usePerGameStats)}</td>
-                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "TOV"), usePerGameStats)}</td>
+                    <td className={`px-3 py-3 text-center ${getPctCellClass(row, "FG_PCT")}`}>{displayPct(row.FG_PCT)}</td>
+                    <td className={`px-3 py-3 text-center ${getPctCellClass(row, "FT_PCT")}`}>{displayPct(row.FT_PCT)}</td>
+                    <td className={`px-3 py-3 text-center ${getStatCellClass(row, "FG3M")}`}>{displayStat(getStatValue(row, "FG3M"), usePerGameStats)}</td>
+                    <td className={`px-3 py-3 text-center ${getStatCellClass(row, "PTS")}`}>{displayStat(getStatValue(row, "PTS"), usePerGameStats)}</td>
+                    <td className={`px-3 py-3 text-center ${getStatCellClass(row, "REB")}`}>{displayStat(getStatValue(row, "REB"), usePerGameStats)}</td>
+                    <td className={`px-3 py-3 text-center ${getStatCellClass(row, "AST")}`}>{displayStat(getStatValue(row, "AST"), usePerGameStats)}</td>
+                    <td className={`px-3 py-3 text-center ${getStatCellClass(row, "STL")}`}>{displayStat(getStatValue(row, "STL"), usePerGameStats)}</td>
+                    <td className={`px-3 py-3 text-center ${getStatCellClass(row, "BLK")}`}>{displayStat(getStatValue(row, "BLK"), usePerGameStats)}</td>
+                    <td className={`px-3 py-3 text-center ${getStatCellClass(row, "TOV")}`}>{displayStat(getStatValue(row, "TOV"), usePerGameStats)}</td>
+                    <td className="px-3 py-3 text-center text-gray-300">
+                      {(() => {
+                        const v = getValueScore(row.player_id);
+                        return v != null ? v.toFixed(2) : "—";
+                      })()}
+                    </td>
                   </tr>
                 ))}
               </tbody>

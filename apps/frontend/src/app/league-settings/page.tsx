@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Save,
   Settings,
@@ -9,16 +9,13 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-
-interface PointsSettings {
-  [key: string]: number;
-}
-
-interface CategorySettings {
-  name: string;
-  enabled: boolean;
-  inverted?: boolean;
-}
+import {
+  getLeagueSettings,
+  setLeagueSettings,
+  type PointsSettings,
+  type CategorySettings,
+  type LeagueSettings,
+} from "@/lib/league-settings";
 
 const DEFAULT_POINTS_SETTINGS: PointsSettings = {
   points: 1,
@@ -123,9 +120,9 @@ export default function LeagueSettingsPage() {
   const [leagueFormat, setLeagueFormat] = useState<"points" | "category">(
     "points"
   );
-  const [pointsSettings, setPointsSettings] = useState<PointsSettings>(
-    DEFAULT_POINTS_SETTINGS
-  );
+  const [pointsSettings, setPointsSettings] = useState<
+    Record<string, number | "">
+  >(DEFAULT_POINTS_SETTINGS);
   const [categories, setCategories] =
     useState<CategorySettings[]>(DEFAULT_CATEGORIES);
   const [categoryFormat, setCategoryFormat] = useState<"h2h" | "roto">("h2h");
@@ -133,17 +130,69 @@ export default function LeagueSettingsPage() {
     "custom" | "espn" | "yahoo" | "sleeper"
   >("custom");
   const [showAdvancedPoints, setShowAdvancedPoints] = useState(false);
+  const [emptyPointsKeys, setEmptyPointsKeys] = useState<string[]>([]);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const showSaveSuccess = () => {
+    setSaveSuccess(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => setSaveSuccess(false), 3000);
+  };
+
+  useEffect(() => {
+    const saved = getLeagueSettings();
+    if (!saved) return;
+    if (saved.leagueName != null) setLeagueName(saved.leagueName);
+    if (saved.leagueFormat) setLeagueFormat(saved.leagueFormat);
+    if (saved.pointsSettings && typeof saved.pointsSettings === "object")
+      setPointsSettings((prev) => ({
+        ...DEFAULT_POINTS_SETTINGS,
+        ...prev,
+        ...saved.pointsSettings,
+      } as Record<string, number | "">));
+    if (Array.isArray(saved.categories) && saved.categories.length > 0)
+      setCategories(saved.categories);
+    if (saved.categoryFormat) setCategoryFormat(saved.categoryFormat);
+    if (saved.selectedPreset) setSelectedPreset(saved.selectedPreset);
+  }, []);
 
   const handleSave = () => {
-    const settings = {
+    setSaveError(null);
+    setEmptyPointsKeys([]);
+    if (leagueFormat === "points") {
+      const emptyKeys: string[] = [];
+      const numericPoints: PointsSettings = {};
+      const keysToValidate = Object.keys(DEFAULT_POINTS_SETTINGS);
+      for (const k of keysToValidate) {
+        const v = pointsSettings[k];
+        if (v === "" || v == null) emptyKeys.push(k);
+        else numericPoints[k] = Number(v);
+      }
+      if (emptyKeys.length > 0) {
+        setEmptyPointsKeys(emptyKeys);
+        setSaveError("Can't have empty cells. Fill in all point values.");
+        return;
+      }
+      const settings: LeagueSettings = {
+        leagueName,
+        leagueFormat,
+        selectedPreset,
+        pointsSettings: numericPoints,
+      };
+      setLeagueSettings(settings);
+      showSaveSuccess();
+      return;
+    }
+    const settings: LeagueSettings = {
       leagueName,
       leagueFormat,
-      ...(leagueFormat === "points"
-        ? { pointsSettings }
-        : { categories, categoryFormat }),
+      selectedPreset,
+      categories: categories,
+      categoryFormat,
     };
-    console.log("Saving settings:", settings);
-    alert("Settings saved successfully!");
+    setLeagueSettings(settings);
+    showSaveSuccess();
   };
 
   const handlePresetChange = (
@@ -151,13 +200,15 @@ export default function LeagueSettingsPage() {
   ) => {
     setSelectedPreset(preset);
     if (preset !== "custom") {
-      setPointsSettings(PRESET_FORMATS[preset]);
+      setPointsSettings({ ...DEFAULT_POINTS_SETTINGS, ...PRESET_FORMATS[preset] });
     }
   };
 
-  const handlePointsChange = (key: string, value: number) => {
+  const handlePointsChange = (key: string, value: number | "") => {
     setPointsSettings((prev) => ({ ...prev, [key]: value }));
     setSelectedPreset("custom");
+    if (emptyPointsKeys.length) setEmptyPointsKeys((prev) => prev.filter((k) => k !== key));
+    if (saveError) setSaveError(null);
   };
 
   const toggleCategory = (index: number) => {
@@ -249,6 +300,22 @@ export default function LeagueSettingsPage() {
   return (
     <div className="min-h-screen bg-[#0E1117] py-8">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        {saveSuccess && (
+          <div
+            role="alert"
+            className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-green-500/40 bg-green-500/10 px-4 py-3 text-green-300"
+          >
+            <span className="font-medium">All changes saved.</span>
+            <button
+              type="button"
+              onClick={() => setSaveSuccess(false)}
+              className="text-green-400 hover:text-green-300 focus:outline-none"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">
             League Settings
@@ -271,19 +338,6 @@ export default function LeagueSettingsPage() {
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  League Name
-                </label>
-                <input
-                  type="text"
-                  value={leagueName}
-                  onChange={(e) => setLeagueName(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500"
-                  placeholder="Enter league name"
-                />
-              </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   League Format
@@ -363,7 +417,13 @@ export default function LeagueSettingsPage() {
                 values penalize certain stats.
               </p>
 
-              {/* Core Stats */}
+              {saveError && (
+                <p className="mb-4 text-sm text-amber-400 bg-amber-500/10 border border-amber-500/40 rounded-lg px-4 py-3">
+                  {saveError}
+                </p>
+              )}
+
+              {/* Core Statistics */}
               <div className="space-y-3 mb-4">
                 <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
                   Core Statistics
@@ -372,7 +432,11 @@ export default function LeagueSettingsPage() {
                   {pointsCategories.map(({ key, label, description }) => (
                     <div
                       key={key}
-                      className="bg-gray-900/50 rounded-lg p-4 border border-gray-700"
+                      className={`bg-gray-900/50 rounded-lg p-4 border ${
+                        emptyPointsKeys.includes(key)
+                          ? "border-red-500 ring-1 ring-red-500/50"
+                          : "border-gray-700"
+                      }`}
                     >
                       <label className="block text-sm font-medium text-white mb-1">
                         {label}
@@ -382,14 +446,17 @@ export default function LeagueSettingsPage() {
                       </p>
                       <input
                         type="number"
-                        step="0.1"
-                        value={pointsSettings[key]}
-                        onChange={(e) =>
-                          handlePointsChange(
-                            key,
-                            parseFloat(e.target.value) || 0
-                          )
-                        }
+                        step="0.5"
+                        value={pointsSettings[key] === "" || pointsSettings[key] == null ? "" : pointsSettings[key]}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "")
+                            handlePointsChange(key, "");
+                          else {
+                            const n = parseFloat(raw);
+                            if (!Number.isNaN(n)) handlePointsChange(key, n);
+                          }
+                        }}
                         className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-orange-500"
                       />
                     </div>
@@ -421,7 +488,11 @@ export default function LeagueSettingsPage() {
                       ({ key, label, description }) => (
                         <div
                           key={key}
-                          className="bg-gray-900/50 rounded-lg p-4 border border-gray-700"
+                          className={`bg-gray-900/50 rounded-lg p-4 border ${
+                            emptyPointsKeys.includes(key)
+                              ? "border-red-500 ring-1 ring-red-500/50"
+                              : "border-gray-700"
+                          }`}
                         >
                           <label className="block text-sm font-medium text-white mb-1">
                             {label}
@@ -431,14 +502,17 @@ export default function LeagueSettingsPage() {
                           </p>
                           <input
                             type="number"
-                            step="0.1"
-                            value={pointsSettings[key]}
-                            onChange={(e) =>
-                              handlePointsChange(
-                                key,
-                                parseFloat(e.target.value) || 0
-                              )
-                            }
+                            step="0.5"
+                            value={pointsSettings[key] === "" || pointsSettings[key] == null ? "" : pointsSettings[key]}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === "")
+                                handlePointsChange(key, "");
+                              else {
+                                const n = parseFloat(raw);
+                                if (!Number.isNaN(n)) handlePointsChange(key, n);
+                              }
+                            }}
                             className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-orange-500"
                           />
                         </div>
@@ -466,43 +540,6 @@ export default function LeagueSettingsPage() {
                 Select which statistical categories count toward your league
                 standings.
               </p>
-
-              {/* Category Format */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Category Format
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setCategoryFormat("h2h")}
-                    className={`px-4 py-3 rounded-lg border transition-all ${
-                      categoryFormat === "h2h"
-                        ? "bg-orange-500/20 border-orange-500 text-orange-400"
-                        : "bg-gray-900/50 border-gray-700 text-gray-400 hover:border-gray-600"
-                    }`}
-                  >
-                    <div className="font-semibold">Head-to-Head</div>
-                    <p className="text-xs opacity-75 mt-1">
-                      Win categories each week
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCategoryFormat("roto")}
-                    className={`px-4 py-3 rounded-lg border transition-all ${
-                      categoryFormat === "roto"
-                        ? "bg-orange-500/20 border-orange-500 text-orange-400"
-                        : "bg-gray-900/50 border-gray-700 text-gray-400 hover:border-gray-600"
-                    }`}
-                  >
-                    <div className="font-semibold">Rotisserie</div>
-                    <p className="text-xs opacity-75 mt-1">
-                      Season-long rankings
-                    </p>
-                  </button>
-                </div>
-              </div>
 
               {/* Active Categories */}
               <div>
