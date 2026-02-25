@@ -5,8 +5,13 @@ import { Search, RefreshCw } from "lucide-react";
 import { searchPlayers, apiPlayerToFantasyPlayer } from "@/lib/api";
 import type { FantasyPlayer } from "@/types/players";
 import { POSITIONS, TEAMS } from "@/types/players";
+import dynamic from "next/dynamic";
 import { PlayerCard } from "@/components/PlayerCard";
-import { TradeEvaluation } from "@/components/TradeEvaluation";
+
+const TradeEvaluation = dynamic(
+  () => import("@/components/TradeEvaluation").then((m) => ({ default: m.TradeEvaluation })),
+  { ssr: false }
+);
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 

@@ -34,3 +34,27 @@ export async function searchPlayers(
   if (!res.ok) throw new Error("Search failed");
   return res.json();
 }
+
+export type RankingRow = {
+  player_id: number;
+  full_name: string;
+  team_abbreviation?: string;
+  rank: number;
+  GP?: number;
+  MPG?: number;
+  FG_PCT?: number;
+  FT_PCT?: number;
+  FG3M?: number;
+  PTS?: number;
+  REB?: number;
+  AST?: number;
+  STL?: number;
+  BLK?: number;
+  TOV?: number;
+};
+
+export async function fetchRankings(): Promise<RankingRow[]> {
+  const res = await fetch(`${API_BASE}/players/rankings`);
+  if (!res.ok) throw new Error("Failed to fetch rankings");
+  return res.json();
+}

@@ -44,13 +44,22 @@ def search_players(
     return matches
 
 
-@router.get("/{player_id}/career")
-def get_player_career(player_id: int) -> dict:
+@router.get("/rankings")
+def get_rankings() -> list[dict]:
     """
-    Return career stats for a player (from nba_api on-demand).
-    Same structure as nba_api PlayerCareerStats.get_dict() (resultSets, etc.).
+    Player rankings from cache (latest season per player, sorted by PPG).
+    Returns [] until cache is built via POST /data/refresh-careers. Fast once cached.
+    """
+    return nba_service.get_rankings_from_cache()
+
+
+@router.get("/{player_id}/career")
+def get_player_career(player_id: int, use_cache: bool = True) -> list[dict]:
+    """
+    Career stats for a player (one object per season).
+    Uses cache if available (from POST /data/refresh-careers); otherwise fetches live from nba_api.
     """
     try:
-        return nba_service.get_player_career(player_id)
+        return nba_service.get_player_career(player_id, use_cache=use_cache)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch career stats: {e!s}") from e
