@@ -245,20 +245,32 @@ def get_rankings_from_cache() -> list[dict]:
         for pid, rows in by_player.items():
             if not rows:
                 continue
-            r0 = dict(rows[0])
-            if len(rows) > 1:
-                for k in sum_keys:
-                    if k in r0 and isinstance(r0.get(k), (int, float)):
-                        r0[k] = sum(row.get(k) or 0 for row in rows)
-                if r0.get("FGA"):
-                    r0["FG_PCT"] = (r0.get("FGM") or 0) / r0["FGA"]
-                if r0.get("FG3A"):
-                    r0["FG3_PCT"] = (r0.get("FG3M") or 0) / r0["FG3A"]
-                if r0.get("FTA"):
-                    r0["FT_PCT"] = (r0.get("FTM") or 0) / r0["FTA"]
-                # Use team from segment with most games
-                best = max(rows, key=lambda x: x.get("GP") or 0)
-                r0["TEAM_ABBREVIATION"] = best.get("TEAM_ABBREVIATION") or ""
+            # Traded players: API gives one row per team plus a "TOT" row with combined stats.
+            # Use TOT stats and the team from the row right before TOT (most recent team).
+            tot_idx = next(
+                (i for i, r in enumerate(rows) if (r.get("TEAM_ABBREVIATION") or "") == "TOT"),
+                None,
+            )
+            if tot_idx is not None:
+                r0 = dict(rows[tot_idx])
+                if tot_idx > 0:
+                    r0["TEAM_ABBREVIATION"] = rows[tot_idx - 1].get("TEAM_ABBREVIATION") or ""
+                    r0["TEAM_ID"] = rows[tot_idx - 1].get("TEAM_ID", 0)
+            else:
+                r0 = dict(rows[0])
+                if len(rows) > 1:
+                    for k in sum_keys:
+                        if k in r0 and isinstance(r0.get(k), (int, float)):
+                            r0[k] = sum(row.get(k) or 0 for row in rows)
+                    if r0.get("FGA"):
+                        r0["FG_PCT"] = (r0.get("FGM") or 0) / r0["FGA"]
+                    if r0.get("FG3A"):
+                        r0["FG3_PCT"] = (r0.get("FG3M") or 0) / r0["FG3A"]
+                    if r0.get("FTA"):
+                        r0["FT_PCT"] = (r0.get("FTM") or 0) / r0["FTA"]
+                    # Use team from segment with most games
+                    best = max(rows, key=lambda x: x.get("GP") or 0)
+                    r0["TEAM_ABBREVIATION"] = best.get("TEAM_ABBREVIATION") or ""
             r0["PLAYER_ID"] = pid
             latest.append(r0)
         # Add active players who have no 2025-26 stats — default all values to 0
