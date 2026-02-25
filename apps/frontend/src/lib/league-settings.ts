@@ -15,6 +15,18 @@ export interface CategorySettings {
   inverted?: boolean;
 }
 
+export interface RosterSettings {
+  pg: number;
+  sg: number;
+  sf: number;
+  pf: number;
+  c: number;
+  g: number;
+  f: number;
+  util: number;
+  bench: number;
+}
+
 export interface LeagueSettings {
   leagueName: string;
   leagueFormat: "points" | "category";
@@ -22,6 +34,7 @@ export interface LeagueSettings {
   categories?: CategorySettings[];
   categoryFormat?: "h2h" | "roto";
   selectedPreset?: "custom" | "espn" | "yahoo" | "sleeper";
+  rosterSettings?: RosterSettings;
 }
 
 export function getLeagueSettings(): LeagueSettings | null {

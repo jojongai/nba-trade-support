@@ -8,6 +8,7 @@ import {
   TrendingUp,
   ChevronDown,
   ChevronUp,
+  Users,
 } from "lucide-react";
 import {
   getLeagueSettings,
@@ -15,8 +16,10 @@ import {
   type PointsSettings,
   type CategorySettings,
   type LeagueSettings,
+  type RosterSettings,
 } from "@/lib/league-settings";
 import { ThemedSelect } from "@/components/ThemedSelect";
+import { ThemedNumberInput } from "@/components/ThemedNumberInput";
 
 const DEFAULT_POINTS_SETTINGS: PointsSettings = {
   points: 1,
@@ -52,6 +55,18 @@ const DEFAULT_CATEGORIES: CategorySettings[] = [
   { name: "Double-Doubles", enabled: false },
   { name: "Triple-Doubles", enabled: false },
 ];
+
+const DEFAULT_ROSTER_SETTINGS: RosterSettings = {
+  pg: 1,
+  sg: 1,
+  sf: 1,
+  pf: 1,
+  c: 1,
+  g: 1,
+  f: 1,
+  util: 2,
+  bench: 3,
+};
 
 const PRESET_FORMATS = {
   espn: {
@@ -131,15 +146,19 @@ export default function LeagueSettingsPage() {
     "custom" | "espn" | "yahoo" | "sleeper"
   >("custom");
   const [showAdvancedPoints, setShowAdvancedPoints] = useState(false);
-  const [emptyPointsKeys, setEmptyPointsKeys] = useState<string[]>([]);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [rosterSettings, setRosterSettings] = useState<Record<keyof RosterSettings, number | "">>(DEFAULT_ROSTER_SETTINGS);
+  const [rosterSettingsOpen, setRosterSettingsOpen] = useState(true);
+  const [pointsSettingsOpen, setPointsSettingsOpen] = useState(true);
+  const [categorySettingsOpen, setCategorySettingsOpen] = useState(true);
 
   const showSaveSuccess = () => {
     setSaveSuccess(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
     setTimeout(() => setSaveSuccess(false), 3000);
   };
+
+  const rosterNum = (v: number | ""): number => (v === "" || v == null ? 0 : Number(v));
 
   useEffect(() => {
     const saved = getLeagueSettings();
@@ -156,43 +175,63 @@ export default function LeagueSettingsPage() {
       setCategories(saved.categories);
     if (saved.categoryFormat) setCategoryFormat(saved.categoryFormat);
     if (saved.selectedPreset) setSelectedPreset(saved.selectedPreset);
+    if (saved.rosterSettings && typeof saved.rosterSettings === "object")
+      setRosterSettings((prev) => ({ ...DEFAULT_ROSTER_SETTINGS, ...prev, ...saved.rosterSettings } as Record<keyof RosterSettings, number | "">));
   }, []);
 
   const handleSave = () => {
-    setSaveError(null);
-    setEmptyPointsKeys([]);
     if (leagueFormat === "points") {
-      const emptyKeys: string[] = [];
       const numericPoints: PointsSettings = {};
       const keysToValidate = Object.keys(DEFAULT_POINTS_SETTINGS);
       for (const k of keysToValidate) {
         const v = pointsSettings[k];
-        if (v === "" || v == null) emptyKeys.push(k);
-        else numericPoints[k] = Number(v);
+        numericPoints[k] = (v === "" || v == null) ? 0 : Number(v);
       }
-      if (emptyKeys.length > 0) {
-        setEmptyPointsKeys(emptyKeys);
-        setSaveError("Can't have empty cells. Fill in all point values.");
-        return;
-      }
+      const rosterToSave: RosterSettings = {
+        pg: rosterNum(rosterSettings.pg),
+        sg: rosterNum(rosterSettings.sg),
+        sf: rosterNum(rosterSettings.sf),
+        pf: rosterNum(rosterSettings.pf),
+        c: rosterNum(rosterSettings.c),
+        g: rosterNum(rosterSettings.g),
+        f: rosterNum(rosterSettings.f),
+        util: rosterNum(rosterSettings.util),
+        bench: rosterNum(rosterSettings.bench),
+      };
       const settings: LeagueSettings = {
         leagueName,
         leagueFormat,
         selectedPreset,
         pointsSettings: numericPoints,
+        rosterSettings: rosterToSave,
       };
       setLeagueSettings(settings);
+      setPointsSettings(numericPoints);
+      setRosterSettings(rosterToSave);
       showSaveSuccess();
       return;
     }
+    const rosterToSave: RosterSettings = {
+      pg: rosterNum(rosterSettings.pg),
+      sg: rosterNum(rosterSettings.sg),
+      sf: rosterNum(rosterSettings.sf),
+      pf: rosterNum(rosterSettings.pf),
+      c: rosterNum(rosterSettings.c),
+      g: rosterNum(rosterSettings.g),
+      f: rosterNum(rosterSettings.f),
+      util: rosterNum(rosterSettings.util),
+      bench: rosterNum(rosterSettings.bench),
+    };
     const settings: LeagueSettings = {
       leagueName,
       leagueFormat,
       selectedPreset,
       categories: categories,
       categoryFormat,
+      rosterSettings: rosterToSave,
     };
     setLeagueSettings(settings);
+    setRosterSettings(rosterToSave);
     showSaveSuccess();
   };
 
@@ -208,8 +247,6 @@ export default function LeagueSettingsPage() {
   const handlePointsChange = (key: string, value: number | "") => {
     setPointsSettings((prev) => ({ ...prev, [key]: value }));
     setSelectedPreset("custom");
-    if (emptyPointsKeys.length) setEmptyPointsKeys((prev) => prev.filter((k) => k !== key));
-    if (saveError) setSaveError(null);
   };
 
   const toggleCategory = (index: number) => {
@@ -217,6 +254,14 @@ export default function LeagueSettingsPage() {
     updated[index].enabled = !updated[index].enabled;
     setCategories(updated);
   };
+
+  const handleRosterChange = (position: keyof RosterSettings, value: number | "") => {
+    setRosterSettings((prev) => ({ ...prev, [position]: value === "" ? "" : Math.max(0, value) }));
+  };
+
+  const getTotalRosterSpots = (): number =>
+    (Object.values(rosterSettings) as (number | "")[]).reduce<number>((sum, val) => sum + rosterNum(val), 0);
+  const getStartingSpots = (): number => getTotalRosterSpots() - rosterNum(rosterSettings.bench);
 
   const pointsCategories = [
     { key: "points", label: "Points (PTS)", description: "Points scored" },
@@ -378,10 +423,152 @@ export default function LeagueSettingsPage() {
             </div>
           </div>
 
+          {/* Roster Settings */}
+          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setRosterSettingsOpen((o) => !o)}
+              className="w-full flex items-center justify-between p-6 text-left hover:bg-gray-800/70 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
+                  <Users className="w-6 h-6 text-green-400" />
+                </div>
+                <h2 className="text-xl font-semibold text-white">
+                  Roster Settings
+                </h2>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-gray-400">
+                  {getStartingSpots()} starters • {rosterNum(rosterSettings.bench)} bench • {getTotalRosterSpots()} total
+                </span>
+                {rosterSettingsOpen ? (
+                  <ChevronUp className="w-5 h-5 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-400" />
+                )}
+              </div>
+            </button>
+
+            {rosterSettingsOpen && (
+            <div className="px-6 pb-6 pt-0">
+            <p className="text-sm text-gray-400 mb-6">
+              Configure the number of roster spots for each position.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Point Guard (PG)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.pg === "" || rosterSettings.pg == null ? "" : rosterSettings.pg}
+                  onChange={(v) => handleRosterChange("pg", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Shooting Guard (SG)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.sg === "" || rosterSettings.sg == null ? "" : rosterSettings.sg}
+                  onChange={(v) => handleRosterChange("sg", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Small Forward (SF)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.sf === "" || rosterSettings.sf == null ? "" : rosterSettings.sf}
+                  onChange={(v) => handleRosterChange("sf", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Power Forward (PF)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.pf === "" || rosterSettings.pf == null ? "" : rosterSettings.pf}
+                  onChange={(v) => handleRosterChange("pf", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Center (C)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.c === "" || rosterSettings.c == null ? "" : rosterSettings.c}
+                  onChange={(v) => handleRosterChange("c", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Guard (G)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.g === "" || rosterSettings.g == null ? "" : rosterSettings.g}
+                  onChange={(v) => handleRosterChange("g", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Forward (F)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.f === "" || rosterSettings.f == null ? "" : rosterSettings.f}
+                  onChange={(v) => handleRosterChange("f", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Utility (UTIL)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.util === "" || rosterSettings.util == null ? "" : rosterSettings.util}
+                  onChange={(v) => handleRosterChange("util", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Bench (BE)
+                </label>
+                <ThemedNumberInput
+                  value={rosterSettings.bench === "" || rosterSettings.bench == null ? "" : rosterSettings.bench}
+                  onChange={(v) => handleRosterChange("bench", v)}
+                  min={0}
+                  allowEmpty
+                />
+              </div>
+            </div>
+            </div>
+            )}
+          </div>
+
           {/* Points League Settings */}
           {leagueFormat === "points" && (
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6 transition-opacity duration-300">
-              <div className="flex items-center justify-between mb-6">
+            <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden transition-opacity duration-300">
+              <button
+                type="button"
+                onClick={() => setPointsSettingsOpen((o) => !o)}
+                className="w-full flex items-center justify-between p-6 text-left hover:bg-gray-800/70 transition-colors"
+              >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
                     <TrendingUp className="w-6 h-6 text-blue-400" />
@@ -390,29 +577,32 @@ export default function LeagueSettingsPage() {
                     Points Settings
                   </h2>
                 </div>
-                <ThemedSelect
-                  value={selectedPreset}
-                  onChange={(v) => handlePresetChange(v as "custom" | "espn" | "yahoo" | "sleeper")}
-                  options={[
-                    { value: "custom", label: "Custom" },
-                    { value: "espn", label: "ESPN Preset" },
-                    { value: "yahoo", label: "Yahoo Preset" },
-                    { value: "sleeper", label: "Sleeper Preset" },
-                  ]}
-                  className="w-40"
-                />
-              </div>
+                <div className="flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
+                  <ThemedSelect
+                    value={selectedPreset}
+                    onChange={(v) => handlePresetChange(v as "custom" | "espn" | "yahoo" | "sleeper")}
+                    options={[
+                      { value: "custom", label: "Custom" },
+                      { value: "espn", label: "ESPN Preset" },
+                      { value: "yahoo", label: "Yahoo Preset" },
+                      { value: "sleeper", label: "Sleeper Preset" },
+                    ]}
+                    className="w-40"
+                  />
+                  {pointsSettingsOpen ? (
+                    <ChevronUp className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  )}
+                </div>
+              </button>
 
+              {pointsSettingsOpen && (
+              <div className="px-6 pb-6 pt-0">
               <p className="text-sm text-gray-400 mb-6">
                 Configure point values for each statistical category. Negative
                 values penalize certain stats.
               </p>
-
-              {saveError && (
-                <p className="mb-4 text-sm text-amber-400 bg-amber-500/10 border border-amber-500/40 rounded-lg px-4 py-3">
-                  {saveError}
-                </p>
-              )}
 
               {/* Core Statistics */}
               <div className="space-y-3 mb-4">
@@ -423,11 +613,7 @@ export default function LeagueSettingsPage() {
                   {pointsCategories.map(({ key, label, description }) => (
                     <div
                       key={key}
-                      className={`bg-gray-900/50 rounded-lg p-4 border ${
-                        emptyPointsKeys.includes(key)
-                          ? "border-red-500 ring-1 ring-red-500/50"
-                          : "border-gray-700"
-                      }`}
+                      className="bg-gray-900/50 rounded-lg p-4 border border-gray-700"
                     >
                       <label className="block text-sm font-medium text-white mb-1">
                         {label}
@@ -435,20 +621,11 @@ export default function LeagueSettingsPage() {
                       <p className="text-xs text-gray-400 mb-2">
                         {description}
                       </p>
-                      <input
-                        type="number"
-                        step="0.5"
+                      <ThemedNumberInput
                         value={pointsSettings[key] === "" || pointsSettings[key] == null ? "" : pointsSettings[key]}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          if (raw === "")
-                            handlePointsChange(key, "");
-                          else {
-                            const n = parseFloat(raw);
-                            if (!Number.isNaN(n)) handlePointsChange(key, n);
-                          }
-                        }}
-                        className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-orange-500"
+                        onChange={(v) => handlePointsChange(key, v)}
+                        step={0.5}
+                        allowEmpty
                       />
                     </div>
                   ))}
@@ -479,11 +656,7 @@ export default function LeagueSettingsPage() {
                       ({ key, label, description }) => (
                         <div
                           key={key}
-                          className={`bg-gray-900/50 rounded-lg p-4 border ${
-                            emptyPointsKeys.includes(key)
-                              ? "border-red-500 ring-1 ring-red-500/50"
-                              : "border-gray-700"
-                          }`}
+                          className="bg-gray-900/50 rounded-lg p-4 border border-gray-700"
                         >
                           <label className="block text-sm font-medium text-white mb-1">
                             {label}
@@ -491,20 +664,11 @@ export default function LeagueSettingsPage() {
                           <p className="text-xs text-gray-400 mb-2">
                             {description}
                           </p>
-                          <input
-                            type="number"
-                            step="0.5"
+                          <ThemedNumberInput
                             value={pointsSettings[key] === "" || pointsSettings[key] == null ? "" : pointsSettings[key]}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              if (raw === "")
-                                handlePointsChange(key, "");
-                              else {
-                                const n = parseFloat(raw);
-                                if (!Number.isNaN(n)) handlePointsChange(key, n);
-                              }
-                            }}
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-orange-500"
+                            onChange={(v) => handlePointsChange(key, v)}
+                            step={0.5}
+                            allowEmpty
                           />
                         </div>
                       )
@@ -513,20 +677,35 @@ export default function LeagueSettingsPage() {
                 </div>
               )}
             </div>
+            )}
+            </div>
           )}
 
           {/* Category League Settings */}
           {leagueFormat === "category" && (
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6 transition-opacity duration-300">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center">
-                  <Trophy className="w-6 h-6 text-purple-400" />
+            <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden transition-opacity duration-300">
+              <button
+                type="button"
+                onClick={() => setCategorySettingsOpen((o) => !o)}
+                className="w-full flex items-center justify-between p-6 text-left hover:bg-gray-800/70 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                    <Trophy className="w-6 h-6 text-purple-400" />
+                  </div>
+                  <h2 className="text-xl font-semibold text-white">
+                    Category Selection
+                  </h2>
                 </div>
-                <h2 className="text-xl font-semibold text-white">
-                  Category Selection
-                </h2>
-              </div>
+                {categorySettingsOpen ? (
+                  <ChevronUp className="w-5 h-5 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-400" />
+                )}
+              </button>
 
+              {categorySettingsOpen && (
+              <div className="px-6 pb-6 pt-0">
               <p className="text-sm text-gray-400 mb-6">
                 Select which statistical categories count toward your league
                 standings.
@@ -587,6 +766,8 @@ export default function LeagueSettingsPage() {
                   formats.
                 </p>
               </div>
+              </div>
+              )}
             </div>
           )}
 

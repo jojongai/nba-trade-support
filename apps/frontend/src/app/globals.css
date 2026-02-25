@@ -23,3 +23,13 @@ body {
 .min-h-screen.bg-\[\#0E1117\] {
   background-color: #0e1117;
 }
+
+/* Hide native number input spinners when using themed custom arrows */
+.themed-number-input::-webkit-inner-spin-button,
+.themed-number-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.themed-number-input[type="number"] {
+  -moz-appearance: textfield;
+}
