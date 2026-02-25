@@ -12,6 +12,11 @@ export default function PlayerRankingsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [positionFilter, setPositionFilter] = useState<string>("");
   const [teamFilter, setTeamFilter] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rankingFormat, setRankingFormat] = useState<"general" | "saved">("general");
+  const [usePerGameStats, setUsePerGameStats] = useState(false);
+
+  const PAGE_SIZE = 50;
 
   useEffect(() => {
     let cancelled = false;
@@ -58,41 +63,82 @@ export default function PlayerRankingsPage() {
     });
   }, [rankings, searchQuery, positionFilter, teamFilter]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredRankings.length / PAGE_SIZE));
+  const paginatedRankings = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredRankings.slice(start, start + PAGE_SIZE);
+  }, [filteredRankings, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, positionFilter, teamFilter]);
+
   const display = (v: number | string | undefined) =>
     v === undefined || v === "" ? "—" : String(v);
   const displayPct = (v: number | undefined) =>
     v === undefined || v === 0 ? "—" : `${(v * 100).toFixed(1)}%`;
   const displayNum = (v: number | undefined) =>
     v === undefined || v === 0 ? "—" : String(v);
+  const displayStat = (value: number | undefined, perGame: boolean) =>
+    value === undefined ? "—" : perGame ? (value).toFixed(1) : String(value);
+
+  const getStatValue = (row: RankingRow, key: keyof Pick<RankingRow, "FG3M" | "PTS" | "REB" | "AST" | "STL" | "BLK" | "TOV">) => {
+    const v = row[key] ?? 0;
+    const gp = row.GP || 1;
+    return usePerGameStats ? (Number(v) / gp) : Number(v);
+  };
 
   return (
     <div className="min-h-screen bg-[#0E1117] py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Player Rankings</h1>
-          <p className="text-gray-400">
-            Fantasy basketball rankings. Active players from the API; stats will
-            map to career data when available.
-          </p>
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <h1 className="text-3xl font-bold text-white">Player Rankings</h1>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-400">Rankings Based On:</span>
+            <div className="flex items-center gap-2">
+              <button
+              type="button"
+              onClick={() => setRankingFormat("general")}
+              className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:ring-offset-[#0E1117] ${
+                rankingFormat === "general"
+                  ? "border-orange-500 bg-orange-500/20 text-orange-400"
+                  : "border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-700/50 hover:text-gray-300"
+              }`}
+            >
+              General
+            </button>
+            <button
+              type="button"
+              onClick={() => setRankingFormat("saved")}
+              className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:ring-offset-[#0E1117] ${
+                rankingFormat === "saved"
+                  ? "border-orange-500 bg-orange-500/20 text-orange-400"
+                  : "border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-700/50 hover:text-gray-300"
+              }`}
+            >
+              Saved Settings
+            </button>
+          </div>
+          </div>
         </div>
 
         <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="md:col-span-2 relative">
+          <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_0.6fr_1fr] w-full gap-3">
+            <div className="relative min-w-0">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search players..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500"
+                className="w-full h-10 pl-10 pr-4 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500"
               />
             </div>
-            <div className="relative">
+            <div className="relative min-w-0">
               <select
                 value={positionFilter}
                 onChange={(e) => setPositionFilter(e.target.value)}
-                className="w-full pl-4 pr-10 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500 appearance-none"
+                className="w-full h-10 pl-3 pr-8 text-sm bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500 appearance-none"
               >
                 <option value="">All Positions</option>
                 {positions.map((pos) => (
@@ -102,11 +148,11 @@ export default function PlayerRankingsPage() {
                 ))}
               </select>
             </div>
-            <div className="relative">
+            <div className="relative min-w-0">
               <select
                 value={teamFilter}
                 onChange={(e) => setTeamFilter(e.target.value)}
-                className="w-full pl-4 pr-10 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500 appearance-none"
+                className="w-full h-10 pl-3 pr-8 text-sm bg-gray-900/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500 appearance-none"
               >
                 <option value="">All Teams</option>
                 {teams.map((t) => (
@@ -115,6 +161,45 @@ export default function PlayerRankingsPage() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setPositionFilter("");
+                  setTeamFilter("");
+                }}
+                className="w-full h-10 px-3 text-sm rounded-lg border border-gray-700 bg-gray-900/50 text-gray-300 hover:bg-gray-800 hover:text-white hover:border-orange-500 focus:outline-none focus:border-orange-500 transition-colors flex items-center justify-center"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="min-w-0 flex items-center gap-2 h-10">
+              <div className="flex items-center gap-1.5 h-10">
+                <button
+                  type="button"
+                  onClick={() => setUsePerGameStats(false)}
+                  className={`h-10 px-2.5 rounded text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:ring-offset-gray-800 flex items-center ${
+                    !usePerGameStats
+                      ? "border border-orange-500 bg-orange-500/20 text-orange-400"
+                      : "border border-gray-700 bg-gray-900/50 text-gray-400 hover:bg-gray-700/50 hover:text-gray-300"
+                  }`}
+                >
+                  Total Stats
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUsePerGameStats(true)}
+                  className={`h-10 px-2.5 rounded text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:ring-offset-gray-800 flex items-center ${
+                    usePerGameStats
+                      ? "border border-orange-500 bg-orange-500/20 text-orange-400"
+                      : "border border-gray-700 bg-gray-900/50 text-gray-400 hover:bg-gray-700/50 hover:text-gray-300"
+                  }`}
+                >
+                  Per Game Stats
+                </button>
+              </div>
             </div>
           </div>
           {(searchQuery || positionFilter || teamFilter) && (
@@ -129,21 +214,21 @@ export default function PlayerRankingsPage() {
             <table className="w-full">
               <thead className="bg-gray-900/50 border-b border-gray-700">
                 <tr>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Rank</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Rank</th>
                   <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Player</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Team</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Pos</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">GP</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">MPG</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">FG%</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">FT%</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">3PM</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">PTS</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">REB</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">AST</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">STL</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">BLK</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">TO</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Team</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Pos</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">GP</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">MPG</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">FG%</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">FT%</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "3PG" : "3PM"}</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "PPG" : "PTS"}</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "RPG" : "REB"}</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "APG" : "AST"}</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "STLPG" : "STL"}</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "BLKPG" : "BLK"}</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">{usePerGameStats ? "TO/PG" : "TO"}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
@@ -175,28 +260,62 @@ export default function PlayerRankingsPage() {
                     </td>
                   </tr>
                 )}
-                {!loading && !error && filteredRankings.length > 0 && filteredRankings.map((row) => (
+                {!loading && !error && filteredRankings.length > 0 && paginatedRankings.map((row) => (
                   <tr key={row.player_id} className="hover:bg-gray-800/50">
-                    <td className="px-3 py-3 text-gray-300">{row.rank}</td>
+                    <td className="px-3 py-3 text-center text-gray-300">{row.rank}</td>
                     <td className="px-3 py-3 font-medium text-white">{row.full_name}</td>
-                    <td className="px-3 py-3 text-gray-400">{display(row.team_abbreviation)}</td>
-                    <td className="px-3 py-3 text-gray-400">{display(row.position)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.GP)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.MPG)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayPct(row.FG_PCT)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayPct(row.FT_PCT)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.FG3M)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.PTS)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.REB)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.AST)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.STL)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.BLK)}</td>
-                    <td className="px-3 py-3 text-gray-400">{displayNum(row.TOV)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{display(row.team_abbreviation)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{display(row.position)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayNum(row.GP)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayNum(row.MPG)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayPct(row.FG_PCT)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayPct(row.FT_PCT)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "FG3M"), usePerGameStats)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "PTS"), usePerGameStats)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "REB"), usePerGameStats)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "AST"), usePerGameStats)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "STL"), usePerGameStats)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "BLK"), usePerGameStats)}</td>
+                    <td className="px-3 py-3 text-center text-gray-400">{displayStat(getStatValue(row, "TOV"), usePerGameStats)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {!loading && !error && filteredRankings.length > PAGE_SIZE && (
+            <div className="flex items-center justify-center gap-4 py-4 border-t border-gray-700 bg-gray-900/30">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="flex items-center gap-1 px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/50 text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-800/50 disabled:hover:text-gray-300 focus:outline-none focus:border-orange-500 transition-colors"
+                aria-label="Previous page"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Previous
+              </button>
+              <span className="text-sm text-gray-400">
+                Page {currentPage} of {totalPages}
+                <span className="ml-2 text-gray-500">
+                  ({(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredRankings.length)} of {filteredRankings.length})
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="flex items-center gap-1 px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/50 text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-800/50 disabled:hover:text-gray-300 focus:outline-none focus:border-orange-500 transition-colors"
+                aria-label="Next page"
+              >
+                Next
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
