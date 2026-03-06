@@ -11,10 +11,6 @@ interface PlayerCardProps {
   onClick?: () => void;
 }
 
-function fallbackImageUrl() {
-  return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64' fill='%23374151'%3E%3Crect width='64' height='64'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%239CA3AF' font-size='24'%3E?%3C/text%3E%3C/svg%3E";
-}
-
 export function PlayerCard({
   player,
   onRemove,
@@ -44,7 +40,6 @@ export function PlayerCard({
     }
   };
 
-  const imgSrc = player.imageUrl || fallbackImageUrl();
   const vol = player.volatility ?? 0;
 
   return (
@@ -69,11 +64,6 @@ export function PlayerCard({
       )}
 
       <div className="flex items-start gap-3">
-        <img
-          src={imgSrc}
-          alt={player.name}
-          className="w-16 h-16 rounded-lg object-cover"
-        />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div>

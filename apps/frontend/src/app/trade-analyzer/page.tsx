@@ -147,6 +147,7 @@ export default function TradeAnalyzerPage() {
   const [rankingsLoading, setRankingsLoading] = useState(true);
   const [rankingsError, setRankingsError] = useState<string | null>(null);
   const hasHydratedRef = useRef(false);
+  const skipFirstPersistRef = useRef(true);
 
   // Same filter logic as rankings table: name substring (trim, case-insensitive), optional position and team exact match.
   // When positionAllowList is set (slot search), API positions (G, F, C, G-F, etc.) are mapped to fantasy positions (PG, SG, SF, PF, C).
@@ -215,9 +216,14 @@ export default function TradeAnalyzerPage() {
     hasHydratedRef.current = true;
   }, []);
 
-  // Persist to localStorage whenever roster, trading away, or receiving changes (after initial load)
+  // Persist to localStorage whenever roster, trading away, or receiving changes (after initial load).
+  // Skip first run to avoid overwriting saved data with initial state before hydration.
   useEffect(() => {
     if (!hasHydratedRef.current) return;
+    if (skipFirstPersistRef.current) {
+      skipFirstPersistRef.current = false;
+      return;
+    }
     setTradeAnalyzerState({
       roster: rosterSlots.map((s) => s.player),
       tradingAway,
