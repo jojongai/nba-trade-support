@@ -1,6 +1,9 @@
 "use client";
 
 import type { FantasyPlayer } from "@/types/players";
+import type { RankingRow } from "@/lib/api";
+import { getLeagueSettings } from "@/lib/league-settings";
+import { buildTradeContextForLLM, type RosterSlotInput } from "@/lib/trade-context";
 import {
   RadarChart,
   Radar,
@@ -22,72 +25,142 @@ import {
   Minus,
   ChevronDown,
   ChevronUp,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useState } from "react";
 
 interface TradeEvaluationProps {
   tradingAway: FantasyPlayer[];
   receiving: FantasyPlayer[];
+  rankings?: RankingRow[];
+  rosterSlots?: RosterSlotInput[];
 }
 
-function sum(arr: FantasyPlayer[], key: keyof FantasyPlayer): number {
-  return arr.reduce((acc, p) => {
-    const v = p[key];
-    return acc + (typeof v === "number" ? v : 0);
+function getRankingRow(rankings: RankingRow[], playerId: string): RankingRow | undefined {
+  const pid = parseInt(playerId, 10);
+  return rankings.find((r) => r.player_id === pid);
+}
+
+function sumStatFromRankings(
+  players: FantasyPlayer[],
+  rankings: RankingRow[],
+  statKey: keyof Pick<RankingRow, "PTS" | "REB" | "AST" | "STL" | "BLK" | "FG3M" | "TOV">
+): number {
+  return players.reduce((acc, p) => {
+    const r = getRankingRow(rankings, p.id);
+    const gp = r?.GP ?? 1;
+    const val = r?.[statKey] ?? 0;
+    return acc + (gp > 0 ? val / gp : 0);
   }, 0);
+}
+
+function avgPctFromRankings(
+  players: FantasyPlayer[],
+  rankings: RankingRow[],
+  statKey: "FG_PCT" | "FT_PCT"
+): number {
+  if (players.length === 0) return 0;
+  const sum = players.reduce((acc, p) => {
+    const r = getRankingRow(rankings, p.id);
+    const val = r?.[statKey];
+    return acc + (typeof val === "number" && !Number.isNaN(val) ? val : 0);
+  }, 0);
+  const count = players.filter((p) => {
+    const r = getRankingRow(rankings, p.id);
+    const val = r?.[statKey];
+    return typeof val === "number" && !Number.isNaN(val);
+  }).length;
+  return count > 0 ? sum / count : 0;
 }
 
 export function TradeEvaluation({
   tradingAway,
   receiving,
+  rankings = [],
+  rosterSlots = [],
 }: TradeEvaluationProps) {
   const [showInsights, setShowInsights] = useState(false);
+  const [showLLMContext, setShowLLMContext] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const leagueSettings = getLeagueSettings();
+  const llmContext = buildTradeContextForLLM(tradingAway, receiving, rankings, {
+    useSavedWeights: true,
+    rosterSlots,
+    leagueSettings,
+  });
+  const llmContextJson = JSON.stringify(llmContext, null, 2);
+
+  const handleCopyLLMContext = async () => {
+    try {
+      await navigator.clipboard.writeText(llmContextJson);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback for older browsers
+      const ta = document.createElement("textarea");
+      ta.value = llmContextJson;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   if (tradingAway.length === 0 || receiving.length === 0) {
     return null;
   }
 
-  const awayPpg = sum(tradingAway, "ppg");
-  const awayRpg = sum(tradingAway, "rpg");
-  const awayApg = sum(tradingAway, "apg");
-  const awayValue = sum(tradingAway, "tradeValue");
+  const awayPpg = sumStatFromRankings(tradingAway, rankings, "PTS");
+  const awayRpg = sumStatFromRankings(tradingAway, rankings, "REB");
+  const awayApg = sumStatFromRankings(tradingAway, rankings, "AST");
+  const awaySpg = sumStatFromRankings(tradingAway, rankings, "STL");
+  const awayBpg = sumStatFromRankings(tradingAway, rankings, "BLK");
+  const awayFg3m = sumStatFromRankings(tradingAway, rankings, "FG3M");
+  const awayTov = sumStatFromRankings(tradingAway, rankings, "TOV");
+  const awayFgPct = avgPctFromRankings(tradingAway, rankings, "FG_PCT");
+  const awayFtPct = avgPctFromRankings(tradingAway, rankings, "FT_PCT");
+
+  const recvPpg = sumStatFromRankings(receiving, rankings, "PTS");
+  const recvRpg = sumStatFromRankings(receiving, rankings, "REB");
+  const recvApg = sumStatFromRankings(receiving, rankings, "AST");
+  const recvSpg = sumStatFromRankings(receiving, rankings, "STL");
+  const recvBpg = sumStatFromRankings(receiving, rankings, "BLK");
+  const recvFg3m = sumStatFromRankings(receiving, rankings, "FG3M");
+  const recvTov = sumStatFromRankings(receiving, rankings, "TOV");
+  const recvFgPct = avgPctFromRankings(receiving, rankings, "FG_PCT");
+  const recvFtPct = avgPctFromRankings(receiving, rankings, "FT_PCT");
+
+  const deltas = {
+    ppg: recvPpg - awayPpg,
+    rpg: recvRpg - awayRpg,
+    apg: recvApg - awayApg,
+    spg: recvSpg - awaySpg,
+    bpg: recvBpg - awayBpg,
+    fg3m: recvFg3m - awayFg3m,
+    tov: recvTov - awayTov,
+    fg_pct: recvFgPct - awayFgPct,
+    ft_pct: recvFtPct - awayFtPct,
+  };
+
+  const awayValue = tradingAway.reduce((s, p) => s + (p.tradeValue ?? 0), 0);
+  const recvValue = receiving.reduce((s, p) => s + (p.tradeValue ?? 0), 0);
   const awayVol =
     tradingAway.length > 0
-      ? tradingAway.reduce((a, p) => a + (p.volatility ?? 0), 0) /
-        tradingAway.length
+      ? tradingAway.reduce((a, p) => a + (p.volatility ?? 0), 0) / tradingAway.length
       : 0;
-
-  const recvPpg = sum(receiving, "ppg");
-  const recvRpg = sum(receiving, "rpg");
-  const recvApg = sum(receiving, "apg");
-  const recvValue = sum(receiving, "tradeValue");
   const recvVol =
     receiving.length > 0
       ? receiving.reduce((a, p) => a + (p.volatility ?? 0), 0) / receiving.length
       : 0;
-
-  const differences = {
-    ppg: recvPpg - awayPpg,
-    rpg: recvRpg - awayRpg,
-    apg: recvApg - awayApg,
-    value: recvValue - awayValue,
-    volatility: recvVol - awayVol,
-  };
+  const volatilityDelta = recvVol - awayVol;
 
   const hasAnyStats =
-    awayPpg > 0 ||
-    awayRpg > 0 ||
-    awayApg > 0 ||
-    recvPpg > 0 ||
-    recvRpg > 0 ||
-    recvApg > 0;
-
-  const fairnessScore = hasAnyStats
-    ? Math.max(
-        0,
-        Math.min(100, 100 - Math.abs(differences.value) * 2)
-      )
-    : null;
+    awayPpg > 0 || awayRpg > 0 || awayApg > 0 ||
+    recvPpg > 0 || recvRpg > 0 || recvApg > 0;
 
   const radarData = [
     { category: "Points", before: awayPpg, after: recvPpg },
@@ -97,16 +170,16 @@ export function TradeEvaluation({
   ];
 
   const barData = [
-    { name: "PPG", change: differences.ppg },
-    { name: "RPG", change: differences.rpg },
-    { name: "APG", change: differences.apg },
+    { name: "PPG", change: deltas.ppg },
+    { name: "RPG", change: deltas.rpg },
+    { name: "APG", change: deltas.apg },
+    { name: "SPG", change: deltas.spg },
+    { name: "BPG", change: deltas.bpg },
+    { name: "3PM", change: deltas.fg3m },
+    { name: "TOV", change: deltas.tov },
+    { name: "FG%", change: deltas.fg_pct },
+    { name: "FT%", change: deltas.ft_pct },
   ];
-
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return "text-green-400";
-    if (score >= 60) return "text-yellow-400";
-    return "text-red-400";
-  };
 
   const getChangeIndicator = (value: number) => {
     if (value > 0) return <TrendingUp className="w-4 h-4 text-green-400" />;
@@ -127,15 +200,16 @@ export function TradeEvaluation({
       ];
     }
     const insights: string[] = [];
-    if (differences.ppg > 5) insights.push("This trade significantly improves your scoring.");
-    else if (differences.ppg < -5) insights.push("This trade weakens your scoring depth.");
-    if (differences.apg > 3) insights.push("Your assist production will increase substantially.");
-    else if (differences.apg < -3) insights.push("Consider your playmaking needs — this trade reduces assists.");
-    if (differences.rpg > 3) insights.push("Rebounding gets a boost with this trade.");
-    else if (differences.rpg < -3) insights.push("This trade weakens rebounding depth.");
-    if (differences.volatility > 10) insights.push("⚠️ Injury risk increases with this trade.");
-    else if (differences.volatility < -10) insights.push("✅ This trade reduces your injury risk exposure.");
-    if (fairnessScore != null && fairnessScore < 60) insights.push("⚠️ This trade may not be fair value. Consider negotiating.");
+    if (deltas.ppg > 5) insights.push("This trade significantly improves your scoring.");
+    else if (deltas.ppg < -5) insights.push("This trade weakens your scoring depth.");
+    if (deltas.apg > 3) insights.push("Your assist production will increase substantially.");
+    else if (deltas.apg < -3) insights.push("Consider your playmaking needs — this trade reduces assists.");
+    if (deltas.rpg > 3) insights.push("Rebounding gets a boost with this trade.");
+    else if (deltas.rpg < -3) insights.push("This trade weakens rebounding depth.");
+    if (deltas.spg > 1) insights.push("Steals production improves.");
+    if (deltas.bpg > 0.5) insights.push("Blocks get a boost.");
+    if (volatilityDelta > 10) insights.push("⚠️ Injury risk increases with this trade.");
+    else if (volatilityDelta < -10) insights.push("✅ This trade reduces your injury risk exposure.");
     if (insights.length === 0) insights.push("This appears to be a relatively balanced trade.");
     return insights;
   };
@@ -145,54 +219,31 @@ export function TradeEvaluation({
       <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
         <h2 className="text-xl font-bold text-white mb-6">Trade Summary</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
-            <div className="text-xs text-gray-400 mb-1">Fairness Score</div>
-            {fairnessScore != null ? (
-              <div className={`text-3xl font-bold ${getScoreColor(fairnessScore)}`}>
-                {fairnessScore.toFixed(0)}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
+          {[
+            { key: "ppg", label: "PPG", value: deltas.ppg, decimals: 1 },
+            { key: "rpg", label: "RPG", value: deltas.rpg, decimals: 1 },
+            { key: "apg", label: "APG", value: deltas.apg, decimals: 1 },
+            { key: "spg", label: "SPG", value: deltas.spg, decimals: 2 },
+            { key: "bpg", label: "BPG", value: deltas.bpg, decimals: 2 },
+            { key: "fg3m", label: "3PM", value: deltas.fg3m, decimals: 2 },
+            { key: "tov", label: "TOV", value: deltas.tov, decimals: 2, inverted: true },
+            { key: "fg_pct", label: "FG%", value: deltas.fg_pct, decimals: 1, pct: true },
+            { key: "ft_pct", label: "FT%", value: deltas.ft_pct, decimals: 1, pct: true },
+          ].map(({ key, label, value, decimals, inverted, pct }) => {
+            const displayVal = pct ? (value * 100).toFixed(decimals) : value.toFixed(decimals);
+            const colorVal = inverted ? -value : value;
+            return (
+              <div key={key} className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+                <div className="text-xs text-gray-400 mb-1">{label} Δ</div>
+                <div className={`text-lg font-bold flex items-center gap-1.5 ${getChangeColor(colorVal)}`}>
+                  {getChangeIndicator(colorVal)}
+                  {value > 0 ? "+" : ""}
+                  {pct ? `${displayVal}%` : displayVal}
+                </div>
               </div>
-            ) : (
-              <div className="text-gray-500 text-sm">N/A</div>
-            )}
-            <div className="text-xs text-gray-500 mt-1">out of 100</div>
-          </div>
-
-          <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
-            <div className="text-xs text-gray-400 mb-1">PPG Change</div>
-            <div className={`text-2xl font-bold flex items-center gap-2 ${getChangeColor(differences.ppg)}`}>
-              {getChangeIndicator(differences.ppg)}
-              {differences.ppg > 0 ? "+" : ""}
-              {differences.ppg.toFixed(1)}
-            </div>
-          </div>
-
-          <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
-            <div className="text-xs text-gray-400 mb-1">RPG Change</div>
-            <div className={`text-2xl font-bold flex items-center gap-2 ${getChangeColor(differences.rpg)}`}>
-              {getChangeIndicator(differences.rpg)}
-              {differences.rpg > 0 ? "+" : ""}
-              {differences.rpg.toFixed(1)}
-            </div>
-          </div>
-
-          <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
-            <div className="text-xs text-gray-400 mb-1">APG Change</div>
-            <div className={`text-2xl font-bold flex items-center gap-2 ${getChangeColor(differences.apg)}`}>
-              {getChangeIndicator(differences.apg)}
-              {differences.apg > 0 ? "+" : ""}
-              {differences.apg.toFixed(1)}
-            </div>
-          </div>
-
-          <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
-            <div className="text-xs text-gray-400 mb-1">Injury Risk Δ</div>
-            <div className={`text-2xl font-bold flex items-center gap-2 ${getChangeColor(-differences.volatility)}`}>
-              {getChangeIndicator(-differences.volatility)}
-              {differences.volatility > 0 ? "+" : ""}
-              {differences.volatility.toFixed(0)}%
-            </div>
-          </div>
+            );
+          })}
         </div>
       </div>
 
@@ -260,6 +311,55 @@ export function TradeEvaluation({
                 <span>{insight}</span>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowLLMContext(!showLLMContext)}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-700/30 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
+              <Copy className="w-5 h-5 text-blue-400" />
+            </div>
+            <span className="font-semibold text-white">Copy for LLM</span>
+          </div>
+          {showLLMContext ? (
+            <ChevronUp className="w-5 h-5 text-gray-400" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-gray-400" />
+          )}
+        </button>
+        {showLLMContext && (
+          <div className="px-4 pb-4">
+            <p className="text-sm text-gray-400 mb-3">
+              Compile trade data (players, stats, trade value, graphs) into JSON for AI analysis.
+            </p>
+            <div className="relative">
+              <pre className="p-4 bg-gray-900/80 rounded-lg border border-gray-700 text-xs text-gray-300 overflow-x-auto max-h-80 overflow-y-auto font-mono">
+                {llmContextJson}
+              </pre>
+              <button
+                type="button"
+                onClick={handleCopyLLMContext}
+                className="absolute top-2 right-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    Copy JSON
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </div>

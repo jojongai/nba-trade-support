@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Search, X, RefreshCw, UserPlus } from "lucide-react";
 import { getLeagueSettings, DEFAULT_ROSTER_SETTINGS, type RosterSettings } from "@/lib/league-settings";
 import { fetchRankings, fetchTeams, type RankingRow, type Team } from "@/lib/api";
+import { computeTradeValues } from "@/lib/trade-value";
 import type { FantasyPlayer } from "@/types/players";
 import { PlayerCard } from "@/components/PlayerCard";
 import dynamic from "next/dynamic";
@@ -64,7 +65,11 @@ function buildRosterSlots(rosterSettings: RosterSettings): RosterPosition[] {
   return slots;
 }
 
-function rankingRowToFantasyPlayer(row: RankingRow): FantasyPlayer {
+function rankingRowToFantasyPlayer(
+  row: RankingRow,
+  tradeValueMap: Map<number, number>
+): FantasyPlayer {
+  const tradeValue = tradeValueMap.get(row.player_id);
   return {
     id: String(row.player_id),
     name: row.full_name,
@@ -74,6 +79,7 @@ function rankingRowToFantasyPlayer(row: RankingRow): FantasyPlayer {
     ppg: row.PTS != null && (row.GP ?? 0) > 0 ? Math.round((row.PTS / row.GP!) * 10) / 10 : undefined,
     rpg: row.REB != null && (row.GP ?? 0) > 0 ? Math.round((row.REB / row.GP!) * 10) / 10 : undefined,
     apg: row.AST != null && (row.GP ?? 0) > 0 ? Math.round((row.AST / row.GP!) * 10) / 10 : undefined,
+    tradeValue: tradeValue != null ? Math.round(tradeValue * 100) / 100 : undefined,
   };
 }
 
@@ -249,9 +255,14 @@ export default function TradeAnalyzerPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const allPlayers = useMemo(
-    () => rankings.map(rankingRowToFantasyPlayer),
+  const tradeValueMap = useMemo(
+    () => computeTradeValues(rankings, { useSavedWeights: true }),
     [rankings]
+  );
+
+  const allPlayers = useMemo(
+    () => rankings.map((row) => rankingRowToFantasyPlayer(row, tradeValueMap)),
+    [rankings, tradeValueMap]
   );
 
   const rosterPlayers = useMemo(
@@ -641,7 +652,12 @@ export default function TradeAnalyzerPage() {
           </div>
         </div>
 
-        <TradeEvaluation tradingAway={tradingAway} receiving={receiving} />
+        <TradeEvaluation
+          tradingAway={tradingAway}
+          receiving={receiving}
+          rankings={rankings}
+          rosterSlots={rosterSlots.map((s) => ({ position: s.position, player: s.player }))}
+        />
       </div>
     </div>
   );
