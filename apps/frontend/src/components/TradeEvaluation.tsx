@@ -25,10 +25,8 @@ import {
   Minus,
   ChevronDown,
   ChevronUp,
-  Copy,
-  Check,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 interface TradeEvaluationProps {
   tradingAway: FantasyPlayer[];
@@ -81,34 +79,14 @@ export function TradeEvaluation({
   rosterSlots = [],
 }: TradeEvaluationProps) {
   const [showInsights, setShowInsights] = useState(false);
-  const [showLLMContext, setShowLLMContext] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const leagueSettings = getLeagueSettings();
-  const llmContext = buildTradeContextForLLM(tradingAway, receiving, rankings, {
+  const llmContextRef = useRef<ReturnType<typeof buildTradeContextForLLM> | null>(null);
+  llmContextRef.current = buildTradeContextForLLM(tradingAway, receiving, rankings, {
     useSavedWeights: true,
     rosterSlots,
     leagueSettings,
   });
-  const llmContextJson = JSON.stringify(llmContext, null, 2);
-
-  const handleCopyLLMContext = async () => {
-    try {
-      await navigator.clipboard.writeText(llmContextJson);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // fallback for older browsers
-      const ta = document.createElement("textarea");
-      ta.value = llmContextJson;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
 
   if (tradingAway.length === 0 || receiving.length === 0) {
     return null;
@@ -311,55 +289,6 @@ export function TradeEvaluation({
                 <span>{insight}</span>
               </div>
             ))}
-          </div>
-        )}
-      </div>
-
-      <div className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowLLMContext(!showLLMContext)}
-          className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-700/30 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
-              <Copy className="w-5 h-5 text-blue-400" />
-            </div>
-            <span className="font-semibold text-white">Copy for LLM</span>
-          </div>
-          {showLLMContext ? (
-            <ChevronUp className="w-5 h-5 text-gray-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-gray-400" />
-          )}
-        </button>
-        {showLLMContext && (
-          <div className="px-4 pb-4">
-            <p className="text-sm text-gray-400 mb-3">
-              Compile trade data (players, stats, trade value, graphs) into JSON for AI analysis.
-            </p>
-            <div className="relative">
-              <pre className="p-4 bg-gray-900/80 rounded-lg border border-gray-700 text-xs text-gray-300 overflow-x-auto max-h-80 overflow-y-auto font-mono">
-                {llmContextJson}
-              </pre>
-              <button
-                type="button"
-                onClick={handleCopyLLMContext}
-                className="absolute top-2 right-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4" />
-                    Copy JSON
-                  </>
-                )}
-              </button>
-            </div>
           </div>
         )}
       </div>
