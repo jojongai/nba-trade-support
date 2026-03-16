@@ -2,10 +2,14 @@
 NBA Trade Support API — FastAPI app entrypoint.
 Uses nba_api for teams, players, and player career stats (static data cached to JSON).
 """
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import data, players, teams
+from app.routers import data, llm, players, teams
 
 app = FastAPI(
     title="NBA Trade Support API",
@@ -24,6 +28,7 @@ app.add_middleware(
 app.include_router(teams.router)
 app.include_router(players.router)
 app.include_router(data.router)
+app.include_router(llm.router)
 
 
 @app.get("/health")

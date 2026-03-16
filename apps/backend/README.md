@@ -11,6 +11,13 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+**Environment variables:** Copy `.env.example` to `.env` and add your API keys. For example:
+
+```bash
+cp .env.example .env
+# Edit .env and set GEMINI_API_KEY=your_key
+```
+
 ## Run locally
 
 ```bash
