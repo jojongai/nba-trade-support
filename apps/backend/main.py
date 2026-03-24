@@ -2,9 +2,14 @@
 NBA Trade Support API — FastAPI app entrypoint.
 Uses nba_api for teams, players, and player career stats (static data cached to JSON).
 """
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from backend dir and project root (cwd can vary when running uvicorn)
+_backend_dir = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=_backend_dir / ".env")
+load_dotenv(dotenv_path=_backend_dir.parent.parent / ".env")  # project root
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +40,19 @@ app.include_router(llm.router)
 def health() -> dict[str, str]:
     """Health check for deployment and load balancers."""
     return {"status": "ok"}
+
+
+@app.get("/llm/env-check")
+def llm_env_check() -> dict[str, bool]:
+    """Check if LLM API keys are loaded (does not reveal values)."""
+    import os
+    openai_key = (
+        os.environ.get("OPENAI_API_KEY") or os.environ.get("OPEN_AI_API_KEY") or ""
+    ).strip()
+    return {
+        "GEMINI_API_KEY": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
+        "OPENAI_API_KEY": bool(openai_key),
+    }
 
 
 @app.get("/")

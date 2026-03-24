@@ -15,7 +15,9 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and set GEMINI_API_KEY=your_key
+# Edit .env and set:
+#   GEMINI_API_KEY=your_key
+#   OPENAI_API_KEY=your_openai_key
 ```
 
 ## Run locally
