@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { Search, X, RefreshCw, UserPlus } from "lucide-react";
+import { Search, X, RefreshCw, UserPlus, BarChart3 } from "lucide-react";
 import { getLeagueSettings, DEFAULT_ROSTER_SETTINGS, type RosterSettings } from "@/lib/league-settings";
 import { fetchRankings, fetchTeams, type RankingRow, type Team } from "@/lib/api";
 import { computeTradeValues } from "@/lib/trade-value";
@@ -152,8 +152,10 @@ export default function TradeAnalyzerPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [rankingsLoading, setRankingsLoading] = useState(true);
   const [rankingsError, setRankingsError] = useState<string | null>(null);
+  const [analysisRequested, setAnalysisRequested] = useState(false);
   const hasHydratedRef = useRef(false);
   const skipFirstPersistRef = useRef(true);
+  const tradeSummaryRef = useRef<HTMLDivElement>(null);
 
   // Same filter logic as rankings table: name substring (trim, case-insensitive), optional position and team exact match.
   // When positionAllowList is set (slot search), API positions (G, F, C, G-F, etc.) are mapped to fantasy positions (PG, SG, SF, PF, C).
@@ -236,6 +238,20 @@ export default function TradeAnalyzerPage() {
       receiving,
     });
   }, [rosterSlots, tradingAway, receiving]);
+
+  // Clear analysis when trade changes (user adds/removes players)
+  useEffect(() => {
+    setAnalysisRequested(false);
+  }, [tradingAway, receiving]);
+
+  // Scroll to trade summary when analysis is requested
+  useEffect(() => {
+    if (analysisRequested && tradeSummaryRef.current) {
+      requestAnimationFrame(() => {
+        tradeSummaryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, [analysisRequested]);
 
   useEffect(() => {
     let cancelled = false;
@@ -346,6 +362,7 @@ export default function TradeAnalyzerPage() {
   const resetTrade = () => {
     setTradingAway([]);
     setReceiving([]);
+    setAnalysisRequested(false);
   };
 
   const clearAll = () => {
@@ -569,16 +586,28 @@ export default function TradeAnalyzerPage() {
           <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-white">Propose a Trade</h2>
-              {(tradingAway.length > 0 || receiving.length > 0) && (
-                <button
-                  type="button"
-                  onClick={resetTrade}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Reset
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {tradingAway.length > 0 && receiving.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAnalysisRequested(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm rounded-lg transition-colors"
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    Analyze Trade
+                  </button>
+                )}
+                {(tradingAway.length > 0 || receiving.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={resetTrade}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Reset
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="mb-6">
@@ -652,12 +681,16 @@ export default function TradeAnalyzerPage() {
           </div>
         </div>
 
-        <TradeEvaluation
-          tradingAway={tradingAway}
-          receiving={receiving}
-          rankings={rankings}
-          rosterSlots={rosterSlots.map((s) => ({ position: s.position, player: s.player }))}
-        />
+        {analysisRequested && (
+          <div ref={tradeSummaryRef}>
+            <TradeEvaluation
+              tradingAway={tradingAway}
+              receiving={receiving}
+              rankings={rankings}
+              rosterSlots={rosterSlots.map((s) => ({ position: s.position, player: s.player }))}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
