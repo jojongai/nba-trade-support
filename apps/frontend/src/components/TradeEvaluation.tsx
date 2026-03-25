@@ -25,8 +25,10 @@ import {
   Minus,
   ChevronDown,
   ChevronUp,
+  Crosshair,
+  X,
 } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 interface TradeEvaluationProps {
   tradingAway: FantasyPlayer[];
@@ -79,14 +81,27 @@ export function TradeEvaluation({
   rosterSlots = [],
 }: TradeEvaluationProps) {
   const [showInsights, setShowInsights] = useState(false);
+  const [statsPlayerId, setStatsPlayerId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!statsPlayerId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStatsPlayerId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [statsPlayerId]);
 
   const leagueSettings = getLeagueSettings();
   const llmContextRef = useRef<ReturnType<typeof buildTradeContextForLLM> | null>(null);
-  llmContextRef.current = buildTradeContextForLLM(tradingAway, receiving, rankings, {
+  const tradeContext = buildTradeContextForLLM(tradingAway, receiving, rankings, {
     useSavedWeights: true,
     rosterSlots,
     leagueSettings,
   });
+  llmContextRef.current = tradeContext;
+  const otherTargets = tradeContext.other_players_to_target;
+  const statsRow = statsPlayerId ? getRankingRow(rankings, statsPlayerId) : undefined;
 
   if (tradingAway.length === 0 || receiving.length === 0) {
     return null;
@@ -194,25 +209,34 @@ export function TradeEvaluation({
 
   return (
     <div className="mt-8 space-y-6">
-      <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
+      <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700 overflow-visible">
         <h2 className="text-xl font-bold text-white mb-6">Trade Summary</h2>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3 overflow-visible">
           {[
-            { key: "ppg", label: "PPG", value: deltas.ppg, decimals: 1 },
-            { key: "rpg", label: "RPG", value: deltas.rpg, decimals: 1 },
-            { key: "apg", label: "APG", value: deltas.apg, decimals: 1 },
-            { key: "spg", label: "SPG", value: deltas.spg, decimals: 2 },
-            { key: "bpg", label: "BPG", value: deltas.bpg, decimals: 2 },
-            { key: "fg3m", label: "3PM", value: deltas.fg3m, decimals: 2 },
-            { key: "tov", label: "TOV", value: deltas.tov, decimals: 2, inverted: true },
-            { key: "fg_pct", label: "FG%", value: deltas.fg_pct, decimals: 1, pct: true },
-            { key: "ft_pct", label: "FT%", value: deltas.ft_pct, decimals: 1, pct: true },
-          ].map(({ key, label, value, decimals, inverted, pct }) => {
+            { key: "ppg", label: "PPG", plain: "Points per game", value: deltas.ppg, decimals: 1 },
+            { key: "rpg", label: "RPG", plain: "Rebounds per game", value: deltas.rpg, decimals: 1 },
+            { key: "apg", label: "APG", plain: "Assists per game", value: deltas.apg, decimals: 1 },
+            { key: "spg", label: "SPG", plain: "Steals per game", value: deltas.spg, decimals: 2 },
+            { key: "bpg", label: "BPG", plain: "Blocks per game", value: deltas.bpg, decimals: 2 },
+            { key: "fg3m", label: "3PM", plain: "Three-pointers made per game", value: deltas.fg3m, decimals: 2 },
+            { key: "tov", label: "TOV", plain: "Turnovers per game", value: deltas.tov, decimals: 2, inverted: true },
+            { key: "fg_pct", label: "FG%", plain: "Field goal percentage", value: deltas.fg_pct, decimals: 1, pct: true },
+            { key: "ft_pct", label: "FT%", plain: "Free throw percentage", value: deltas.ft_pct, decimals: 1, pct: true },
+          ].map(({ key, label, plain, value, decimals, inverted, pct }) => {
             const displayVal = pct ? (value * 100).toFixed(decimals) : value.toFixed(decimals);
             const colorVal = inverted ? -value : value;
             return (
-              <div key={key} className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+              <div
+                key={key}
+                className="group relative overflow-visible bg-gray-900/50 rounded-lg p-3 border border-gray-700"
+              >
+                <span
+                  className="pointer-events-none absolute z-30 left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] w-max max-w-[min(100vw-2rem,14rem)] rounded-md bg-gray-800 px-2.5 py-1.5 text-center text-xs leading-snug text-gray-100 shadow-lg ring-1 ring-gray-600 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                  role="tooltip"
+                >
+                  {plain}
+                </span>
                 <div className="text-xs text-gray-400 mb-1">{label} Δ</div>
                 <div className={`text-lg font-bold flex items-center gap-1.5 ${getChangeColor(colorVal)}`}>
                   {getChangeIndicator(colorVal)}
@@ -292,6 +316,107 @@ export function TradeEvaluation({
           </div>
         )}
       </div>
+
+      {otherTargets.length > 0 && (
+        <div className="bg-gray-800/50 rounded-lg border border-gray-700 px-3 py-2.5 overflow-x-auto">
+          <div className="flex items-stretch gap-3 min-w-0">
+            <div className="flex items-center gap-2 shrink-0 pr-2 border-r border-gray-700">
+              <div className="w-7 h-7 bg-slate-600 rounded-lg flex items-center justify-center">
+                <Crosshair className="w-3.5 h-3.5 text-white" />
+              </div>
+              <div className="min-w-0 max-w-[140px] sm:max-w-[11rem]">
+                <h3 className="text-sm font-semibold text-white leading-tight whitespace-nowrap truncate">
+                  Other players to target
+                </h3>
+                <p className="text-[11px] text-gray-500 leading-tight whitespace-nowrap">Tap for stats</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2 flex-1 min-w-[280px]">
+              {otherTargets.map((p) => (
+                <button
+                  key={p.player_id}
+                  type="button"
+                  onClick={() => setStatsPlayerId(p.player_id)}
+                  className="min-w-0 rounded-lg bg-gray-900/60 border border-gray-600 hover:border-orange-500/60 hover:bg-gray-800/80 px-1.5 py-1.5 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <div className="text-[11px] text-white truncate font-medium leading-tight">{p.name}</div>
+                  <div className="text-[10px] text-gray-500 truncate">{p.team ?? "—"}</div>
+                  <div className="text-[10px] text-gray-400 tabular-nums mt-0.5 truncate">
+                    #{p.rank ?? "—"} · {p.trade_value_score.toFixed(2)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {statsRow && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="target-player-stats-title"
+          onClick={() => setStatsPlayerId(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-gray-600 bg-gray-900 shadow-xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 p-4 border-b border-gray-700">
+              <div className="min-w-0">
+                <h3 id="target-player-stats-title" className="text-lg font-semibold text-white truncate">
+                  {statsRow.full_name}
+                </h3>
+                <p className="text-sm text-gray-400">
+                  {[statsRow.team_abbreviation, statsRow.position].filter(Boolean).join(" · ") || "—"}
+                  {statsRow.rank != null && ` · Rank #${statsRow.rank}`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatsPlayerId(null)}
+                className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3 text-sm">
+              {(() => {
+                const gp = statsRow.GP || 1;
+                const pg = (v: number | undefined) =>
+                  v != null && gp > 0 ? (v / gp).toFixed(1) : "—";
+                const pct = (v: number | undefined) =>
+                  v != null && !Number.isNaN(v) ? `${(v * 100).toFixed(1)}%` : "—";
+                const rows: [string, string][] = [
+                  ["GP", statsRow.GP != null ? String(statsRow.GP) : "—"],
+                  ["MPG", statsRow.MPG != null ? statsRow.MPG.toFixed(1) : "—"],
+                  ["FG%", pct(statsRow.FG_PCT)],
+                  ["FT%", pct(statsRow.FT_PCT)],
+                  ["3PM", pg(statsRow.FG3M)],
+                  ["PPG", pg(statsRow.PTS)],
+                  ["RPG", pg(statsRow.REB)],
+                  ["APG", pg(statsRow.AST)],
+                  ["SPG", pg(statsRow.STL)],
+                  ["BPG", pg(statsRow.BLK)],
+                  ["TOV", pg(statsRow.TOV)],
+                ];
+                return (
+                  <div className="space-y-2">
+                    {rows.map(([label, val]) => (
+                      <div key={label} className="flex justify-between gap-4 border-b border-gray-800/80 pb-2 last:border-0">
+                        <span className="text-gray-500">{label}</span>
+                        <span className="text-white tabular-nums">{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

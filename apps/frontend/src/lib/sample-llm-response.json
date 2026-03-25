@@ -1,0 +1,34 @@
+{
+  "verdict": "accept",
+  "verdict_score": 72,
+  "summary": "This trade slightly favors you. You give up a high-volume scorer and a reliable big for a balanced wing and an upside guard. Your assists and steals improve while scoring stays similar. Consider your playoff schedule before committing.",
+  "pros": [
+    "Assist production increases with the incoming point guard",
+    "Steals improve — helps in category leagues",
+    "Trade value is roughly even; no major overpay",
+    "Reduces injury risk by moving an older player"
+  ],
+  "cons": [
+    "Rebounding takes a hit with the center departure",
+    "Blocks decrease slightly",
+    "Turnovers may rise if the new guard is ball-dominant"
+  ],
+  "recommendation": "Accept if you are punting rebounds or already strong there. If blocks are a need, consider countering with a block specialist on your side.",
+  "insights": [
+    "Your PPG stays roughly the same (+0.3) while RPG drops (-1.2).",
+    "APG improves by ~2.1 — good for assists-needy teams.",
+    "SPG gets a boost of ~0.4; BPG drops ~0.3.",
+    "This appears to be a relatively balanced trade with slight upside for you."
+  ],
+  "category_impacts": {
+    "ppg": "slight upgrade",
+    "rpg": "downgrade",
+    "apg": "upgrade",
+    "spg": "upgrade",
+    "bpg": "slight downgrade",
+    "fg3m": "neutral",
+    "tov": "neutral",
+    "fg_pct": "neutral",
+    "ft_pct": "neutral"
+  }
+}

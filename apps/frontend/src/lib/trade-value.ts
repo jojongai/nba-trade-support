@@ -1,6 +1,6 @@
 /**
- * Shared trade value computation for Player Rankings and Trade Analyzer.
- * Uses z-score weighted aggregation across fantasy-relevant stats.
+ * Value score for the Player Rankings “Value” column and trade features.
+ * Single implementation: z-score weighted aggregation (Categories vs League points weights).
  */
 import type { RankingRow } from "@/lib/api";
 import { getSavedPointsWeights } from "@/lib/league-settings";
@@ -28,13 +28,16 @@ const SAVED_WEIGHT_MAP: Partial<Record<ValueStatKeyPoints, string>> = {
   FTA: "freeThrowsAttempted",
 };
 
+/** Matches Player Rankings “Categories” vs “League value weights” toggles. */
+export type RankingValueFormat = "general" | "saved";
+
 export interface TradeValueOptions {
   /** Use saved points league weights when available; otherwise categories (general) weights. */
   useSavedWeights?: boolean;
 }
 
-function getValueWeights(useSavedWeights: boolean): Record<ValueStatKey, number> {
-  if (useSavedWeights) {
+function getValueWeightsForFormat(format: RankingValueFormat): Record<ValueStatKey, number> {
+  if (format === "saved") {
     const saved = getSavedPointsWeights();
     if (saved) {
       const w: Record<ValueStatKey, number> = {
@@ -67,21 +70,15 @@ function getValueStatNumber(row: RankingRow, key: ValueStatKey): number {
 }
 
 /**
- * Compute trade value (z-score weighted) for each player in rankings.
- * Returns a map of player_id -> value score.
+ * Same value score as the Player Rankings table “Value” column for the given format.
  */
-export function computeTradeValues(
+export function computeRankingValueScores(
   rankings: RankingRow[],
-  options: TradeValueOptions = {}
+  format: RankingValueFormat
 ): Map<number, number> {
-  const { useSavedWeights = false } = options;
-  const valueStatKeys = useSavedWeights && getSavedPointsWeights()
-    ? VALUE_STAT_KEYS_POINTS
-    : VALUE_STAT_KEYS_GENERAL;
-  const valueLowerIsBetter = useSavedWeights && getSavedPointsWeights()
-    ? VALUE_LOWER_IS_BETTER_POINTS
-    : VALUE_LOWER_IS_BETTER_GENERAL;
-  const valueWeights = getValueWeights(useSavedWeights);
+  const valueStatKeys = format === "saved" ? VALUE_STAT_KEYS_POINTS : VALUE_STAT_KEYS_GENERAL;
+  const valueLowerIsBetter = format === "saved" ? VALUE_LOWER_IS_BETTER_POINTS : VALUE_LOWER_IS_BETTER_GENERAL;
+  const valueWeights = getValueWeightsForFormat(format);
 
   const means: Record<string, number> = {};
   const stds: Record<string, number> = {};
@@ -123,4 +120,17 @@ export function computeTradeValues(
     out.set(playerId, sum / totalWeight);
   }
   return out;
+}
+
+/**
+ * Trade analyzer uses league weights when saved; otherwise “Categories” value (same as rankings default).
+ */
+export function computeTradeValues(
+  rankings: RankingRow[],
+  options: TradeValueOptions = {}
+): Map<number, number> {
+  const { useSavedWeights = false } = options;
+  const format: RankingValueFormat =
+    useSavedWeights && getSavedPointsWeights() ? "saved" : "general";
+  return computeRankingValueScores(rankings, format);
 }

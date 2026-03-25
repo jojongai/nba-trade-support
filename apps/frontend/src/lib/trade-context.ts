@@ -7,6 +7,15 @@ import type { FantasyPlayer } from "@/types/players";
 import type { LeagueSettings } from "@/lib/league-settings";
 import { computeTradeValues } from "./trade-value";
 
+export interface OtherPlayerToTarget {
+  player_id: string;
+  name: string;
+  team?: string;
+  position?: string;
+  trade_value_score: number;
+  rank?: number;
+}
+
 export interface TradeContextForLLM {
   league_context: Record<string, unknown>;
   team_a: {
@@ -41,6 +50,8 @@ export interface TradeContextForLLM {
     long_term_edge: string;
     flags: string[];
   };
+  /** Players outside this trade with similar trade value to incoming pieces (for LLM + UI). */
+  other_players_to_target: OtherPlayerToTarget[];
 }
 
 export interface RosterSlotInput {
@@ -64,6 +75,54 @@ function round2(n: number) {
 }
 function round1(n: number) {
   return Math.round(n * 10) / 10;
+}
+
+const SIMILAR_TARGET_MAX = 4;
+
+/**
+ * Other players (not in trade or roster) closest in trade value to the average
+ * of players you're receiving — negotiation alternatives in the same tier.
+ */
+export function findSimilarTradeValueTargets(
+  rankings: RankingRow[],
+  tradeValueMap: Map<number, number>,
+  receiving: FantasyPlayer[],
+  tradingAway: FantasyPlayer[],
+  rosterSlots: RosterSlotInput[]
+): OtherPlayerToTarget[] {
+  if (receiving.length === 0 || rankings.length === 0) return [];
+
+  const exclude = new Set<string>([
+    ...tradingAway.map((p) => p.id),
+    ...receiving.map((p) => p.id),
+    ...rosterSlots.filter((s) => s.player).map((s) => s.player!.id),
+  ]);
+
+  const refVals = receiving
+    .map((p) => tradeValueMap.get(parseInt(p.id, 10)))
+    .filter((v): v is number => v != null && !Number.isNaN(v));
+  if (refVals.length === 0) return [];
+
+  const refMean = refVals.reduce((a, b) => a + b, 0) / refVals.length;
+
+  const candidates: { row: RankingRow; val: number; dist: number }[] = [];
+  for (const row of rankings) {
+    const idStr = String(row.player_id);
+    if (exclude.has(idStr)) continue;
+    const val = tradeValueMap.get(row.player_id);
+    if (val == null || Number.isNaN(val)) continue;
+    candidates.push({ row, val, dist: Math.abs(val - refMean) });
+  }
+
+  candidates.sort((a, b) => a.dist - b.dist);
+  return candidates.slice(0, SIMILAR_TARGET_MAX).map(({ row, val }) => ({
+    player_id: String(row.player_id),
+    name: row.full_name,
+    team: row.team_abbreviation,
+    position: row.position,
+    trade_value_score: round2(val),
+    rank: row.rank,
+  }));
 }
 
 /**
@@ -178,6 +237,14 @@ export function buildTradeContextForLLM(
   const shortTermEdge = ppgDelta > 0 ? "Scoring improves short-term" : ppgDelta < 0 ? "Scoring weakens short-term" : "";
   const longTermEdge = valueDelta > 0 ? "Value gain long-term" : valueDelta < 0 ? "Value loss long-term" : "";
 
+  const other_players_to_target = findSimilarTradeValueTargets(
+    rankings,
+    tradeValueMap,
+    receiving,
+    tradingAway,
+    rosterSlots
+  );
+
   const leagueContext: Record<string, unknown> = {};
   if (leagueSettings) {
     leagueContext.league_name = leagueSettings.leagueName;
@@ -223,5 +290,6 @@ export function buildTradeContextForLLM(
       long_term_edge: longTermEdge,
       flags,
     },
+    other_players_to_target,
   };
 }

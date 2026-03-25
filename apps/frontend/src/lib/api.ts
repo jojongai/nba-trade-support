@@ -56,6 +56,8 @@ export type RankingRow = {
   STL?: number;
   BLK?: number;
   TOV?: number;
+  /** Same as Player Rankings “Value” column when set; computed client-side via `computeRankingValueScores`. */
+  value?: number;
 };
 
 export async function fetchRankings(): Promise<RankingRow[]> {
