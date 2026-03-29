@@ -31,9 +31,22 @@ const SAVED_WEIGHT_MAP: Partial<Record<ValueStatKeyPoints, string>> = {
 /** Matches Player Rankings “Categories” vs “League value weights” toggles. */
 export type RankingValueFormat = "general" | "saved";
 
+/**
+ * Prior “games” for GP shrinkage: low-GP players are pulled toward league average per stat.
+ * Formula per stat: (GP/(GP+k))*raw + (k/(GP+k))*leagueAvg (same idea as PPG, applied to all value columns).
+ */
+export const DEFAULT_GP_SHRINKAGE_K = 15;
+
 export interface TradeValueOptions {
   /** Use saved points league weights when available; otherwise categories (general) weights. */
   useSavedWeights?: boolean;
+  /** Set to 0 to disable GP adjustment. Default {@link DEFAULT_GP_SHRINKAGE_K}. */
+  gpShrinkageK?: number;
+}
+
+export interface RankingValueComputeOptions {
+  /** Set to 0 to disable GP adjustment. Default {@link DEFAULT_GP_SHRINKAGE_K}. */
+  gpShrinkageK?: number;
 }
 
 function getValueWeightsForFormat(format: RankingValueFormat): Record<ValueStatKey, number> {
@@ -69,24 +82,65 @@ function getValueStatNumber(row: RankingRow, key: ValueStatKey): number {
   return Number(v) / gp;
 }
 
+/** Actual games played for shrinkage (0 if missing / none). */
+function getGamesPlayed(row: RankingRow): number {
+  const g = row.GP;
+  if (g == null || Number.isNaN(Number(g))) return 0;
+  return Math.max(0, Number(g));
+}
+
+/**
+ * Blends player rate toward league average; more weight on league avg when GP is low.
+ */
+function gpAdjustedStat(raw: number, gp: number, leagueAverage: number, k: number): number {
+  if (k <= 0) return raw;
+  const denom = gp + k;
+  if (denom <= 0) return leagueAverage;
+  return (gp / denom) * raw + (k / denom) * leagueAverage;
+}
+
 /**
  * Same value score as the Player Rankings table “Value” column for the given format.
+ * Optionally shrinks each stat toward league average using GP (see {@link DEFAULT_GP_SHRINKAGE_K}).
  */
 export function computeRankingValueScores(
   rankings: RankingRow[],
-  format: RankingValueFormat
+  format: RankingValueFormat,
+  computeOpts?: RankingValueComputeOptions
 ): Map<number, number> {
+  const k = computeOpts?.gpShrinkageK ?? DEFAULT_GP_SHRINKAGE_K;
   const valueStatKeys = format === "saved" ? VALUE_STAT_KEYS_POINTS : VALUE_STAT_KEYS_GENERAL;
   const valueLowerIsBetter = format === "saved" ? VALUE_LOWER_IS_BETTER_POINTS : VALUE_LOWER_IS_BETTER_GENERAL;
   const valueWeights = getValueWeightsForFormat(format);
+
+  const leagueMeans: Record<string, number> = {};
+  for (const stat of valueStatKeys) {
+    const values = rankings
+      .map((r) => getValueStatNumber(r, stat))
+      .filter((v) => v != null && !Number.isNaN(v));
+    const n = values.length;
+    leagueMeans[stat] = n ? values.reduce((a, b) => a + b, 0) / n : 0;
+  }
+
+  const adjustedByPlayer = new Map<number, Record<string, number>>();
+  for (const row of rankings) {
+    const gp = getGamesPlayed(row);
+    const adj: Record<string, number> = {};
+    for (const stat of valueStatKeys) {
+      const raw = getValueStatNumber(row, stat);
+      const leagueAvg = leagueMeans[stat] ?? 0;
+      adj[stat] = k <= 0 ? raw : gpAdjustedStat(raw, gp, leagueAvg, k);
+    }
+    adjustedByPlayer.set(row.player_id, adj);
+  }
 
   const means: Record<string, number> = {};
   const stds: Record<string, number> = {};
 
   for (const stat of valueStatKeys) {
     const values = rankings
-      .map((r) => getValueStatNumber(r, stat))
-      .filter((v) => v != null && !Number.isNaN(v));
+      .map((r) => adjustedByPlayer.get(r.player_id)?.[stat])
+      .filter((v): v is number => v != null && !Number.isNaN(v));
     const n = values.length;
     const mean = n ? values.reduce((a, b) => a + b, 0) / n : 0;
     means[stat] = mean;
@@ -97,8 +151,9 @@ export function computeRankingValueScores(
   const zScoresByPlayerId = new Map<number, Record<string, number>>();
   for (const row of rankings) {
     const zScores: Record<string, number> = {};
+    const adj = adjustedByPlayer.get(row.player_id);
     for (const stat of valueStatKeys) {
-      const v = getValueStatNumber(row, stat);
+      const v = adj?.[stat] ?? getValueStatNumber(row, stat);
       const mean = means[stat];
       const std = stds[stat];
       const lowerIsBetter = valueLowerIsBetter.has(stat);
@@ -129,8 +184,9 @@ export function computeTradeValues(
   rankings: RankingRow[],
   options: TradeValueOptions = {}
 ): Map<number, number> {
-  const { useSavedWeights = false } = options;
+  const { useSavedWeights = false, gpShrinkageK } = options;
   const format: RankingValueFormat =
     useSavedWeights && getSavedPointsWeights() ? "saved" : "general";
-  return computeRankingValueScores(rankings, format);
+  const k = gpShrinkageK ?? DEFAULT_GP_SHRINKAGE_K;
+  return computeRankingValueScores(rankings, format, { gpShrinkageK: k });
 }

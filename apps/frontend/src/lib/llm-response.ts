@@ -35,5 +35,9 @@ export function isLLMTradeResponse(obj: unknown): obj is LLMTradeResponse {
  * Simulates what the backend would return for a typical trade analysis.
  */
 import sampleJson from "./sample-llm-response.json";
+import sampleRejectJson from "./sample-llm-reject.json";
+import sampleNeutralJson from "./sample-llm-neutral.json";
 
 export const SAMPLE_LLM_RESPONSE: LLMTradeResponse = sampleJson as LLMTradeResponse;
+export const SAMPLE_REJECT_RESPONSE: LLMTradeResponse = sampleRejectJson as LLMTradeResponse;
+export const SAMPLE_NEUTRAL_RESPONSE: LLMTradeResponse = sampleNeutralJson as LLMTradeResponse;

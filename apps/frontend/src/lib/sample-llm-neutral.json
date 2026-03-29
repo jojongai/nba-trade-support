@@ -1,0 +1,30 @@
+{
+  "verdict": "neutral",
+  "verdict_score": 52,
+  "summary": "This trade is close to even on value. You reshape your roster more than you clearly win or lose — the right move depends on your schedule, injuries, and category strategy.",
+  "pros": [
+    "Balances trade value roughly evenly",
+    "Addresses one roster need if you targeted it deliberately"
+  ],
+  "cons": [
+    "No clear slam-dunk win in overall value",
+    "May need a follow-up move to cover a thin category"
+  ],
+  "recommendation": "Accept only if the fit matches your build; otherwise float a small counter to tilt value slightly your way.",
+  "insights": [
+    "PPG and RPG impacts are modest in both directions.",
+    "Check playoff weeks and games played before locking in.",
+    "Consider this a lateral move unless you gain a specific punt or stack advantage."
+  ],
+  "category_impacts": {
+    "ppg": "neutral",
+    "rpg": "neutral",
+    "apg": "slight upgrade",
+    "spg": "neutral",
+    "bpg": "neutral",
+    "fg3m": "neutral",
+    "tov": "neutral",
+    "fg_pct": "neutral",
+    "ft_pct": "neutral"
+  }
+}

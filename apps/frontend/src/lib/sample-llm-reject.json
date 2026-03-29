@@ -1,0 +1,30 @@
+{
+  "verdict": "reject",
+  "verdict_score": 28,
+  "summary": "This trade costs you more trade value than you bring back. You surrender stronger fantasy assets for a package that does not close the gap in points leagues or category coverage.",
+  "pros": [
+    "Possible short-term minutes bump for one incoming player"
+  ],
+  "cons": [
+    "Net loss in composite trade value",
+    "You weaken scoring and efficiency versus what you send out",
+    "Harder to win weekly matchups in your weakest categories"
+  ],
+  "recommendation": "Decline or ask for a meaningful add-on (pick or better player) before considering this deal.",
+  "insights": [
+    "Value given up exceeds value received on paper.",
+    "Category profile tilts against your build unless you are punting specific stats.",
+    "Better offers may be available on the wire or in counter-offers."
+  ],
+  "category_impacts": {
+    "ppg": "downgrade",
+    "rpg": "slight downgrade",
+    "apg": "neutral",
+    "spg": "neutral",
+    "bpg": "downgrade",
+    "fg3m": "downgrade",
+    "tov": "neutral",
+    "fg_pct": "slight downgrade",
+    "ft_pct": "neutral"
+  }
+}

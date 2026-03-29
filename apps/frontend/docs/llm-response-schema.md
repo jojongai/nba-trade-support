@@ -84,7 +84,7 @@ if (isLLMTradeResponse(parsed)) {
 ## Input (what we send to the LLM)
 
 See `@/lib/trade-context` for the structure we build and send as the prompt context (`TradeContextForLLM`).
-
 Computed **before** any LLM JSON response is produced or parsed:
 
 - **`other_players_to_target`** — Up to 4 players **not** on your roster and **not** in the current trade whose trade-value score is closest to the **average** of players you’re receiving. Same league weights as `computeTradeValues`. Use this for “who else to ask about” in copy and analysis.
+

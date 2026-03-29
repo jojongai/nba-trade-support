@@ -16,8 +16,18 @@ export interface OtherPlayerToTarget {
   rank?: number;
 }
 
+/** Tells the LLM how to phrase analysis; structural keys stay team_a / team_b. */
+export const TRADE_CONTEXT_PERSPECTIVE = {
+  reader_is: "team_a" as const,
+  trade_partner_is: "team_b" as const,
+  prose:
+    "The manager reading this analysis is team_a. In summary, pros, cons, recommendation, insights, and category_impacts, address them as You / your / your roster — never Team A. Refer to the counterparty (team_b) as your trade partner or the other side — never Team B.",
+};
+
 export interface TradeContextForLLM {
   league_context: Record<string, unknown>;
+  /** Reader-facing phrasing; same keys as top-level team_a / team_b. */
+  perspective: typeof TRADE_CONTEXT_PERSPECTIVE;
   team_a: {
     before: Record<string, unknown>;
     after: Record<string, unknown>;
@@ -261,6 +271,7 @@ export function buildTradeContextForLLM(
 
   return {
     league_context: leagueContext,
+    perspective: TRADE_CONTEXT_PERSPECTIVE,
     team_a: {
       before: { roster_ids: rosterBefore, value: round2(beforeValue), ppg: round1(beforePpg) },
       after: {

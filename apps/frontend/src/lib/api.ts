@@ -81,3 +81,26 @@ export async function fetchTeams(): Promise<Team[]> {
   if (!res.ok) throw new Error("Failed to fetch teams");
   return res.json();
 }
+
+/** POST trade context to OpenAI-backed analysis; response body matches LLMTradeResponse when successful. */
+export async function fetchTradeAnalysis(
+  tradeContext: Record<string, unknown>
+): Promise<unknown> {
+  const res = await fetch(`${API_BASE}/llm/openai/trade-analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trade_context: tradeContext }),
+  });
+  const data: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail =
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof (data as { detail: unknown }).detail === "string"
+        ? (data as { detail: string }).detail
+        : `Analysis failed (${res.status})`;
+    throw new Error(detail);
+  }
+  return data;
+}

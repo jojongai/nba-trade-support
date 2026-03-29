@@ -4,7 +4,9 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Search, X, RefreshCw, UserPlus, BarChart3 } from "lucide-react";
 import { getLeagueSettings, DEFAULT_ROSTER_SETTINGS, type RosterSettings } from "@/lib/league-settings";
-import { fetchRankings, fetchTeams, type RankingRow, type Team } from "@/lib/api";
+import { fetchRankings, fetchTeams, fetchTradeAnalysis, type RankingRow, type Team } from "@/lib/api";
+import { buildTradeContextForLLM } from "@/lib/trade-context";
+import { isLLMTradeResponse, type LLMTradeResponse } from "@/lib/llm-response";
 import { computeTradeValues } from "@/lib/trade-value";
 import type { FantasyPlayer } from "@/types/players";
 import { PlayerCard } from "@/components/PlayerCard";
@@ -153,6 +155,9 @@ export default function TradeAnalyzerPage() {
   const [rankingsLoading, setRankingsLoading] = useState(true);
   const [rankingsError, setRankingsError] = useState<string | null>(null);
   const [analysisRequested, setAnalysisRequested] = useState(false);
+  const [llmAnalysis, setLlmAnalysis] = useState<LLMTradeResponse | null>(null);
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmError, setLlmError] = useState<string | null>(null);
   const hasHydratedRef = useRef(false);
   const skipFirstPersistRef = useRef(true);
   const tradeSummaryRef = useRef<HTMLDivElement>(null);
@@ -242,6 +247,9 @@ export default function TradeAnalyzerPage() {
   // Clear analysis when trade changes (user adds/removes players)
   useEffect(() => {
     setAnalysisRequested(false);
+    setLlmAnalysis(null);
+    setLlmError(null);
+    setLlmLoading(false);
   }, [tradingAway, receiving]);
 
   // Scroll to trade summary when analysis is requested
@@ -590,11 +598,45 @@ export default function TradeAnalyzerPage() {
                 {tradingAway.length > 0 && receiving.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setAnalysisRequested(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm rounded-lg transition-colors"
+                    disabled={llmLoading}
+                    onClick={async () => {
+                      setAnalysisRequested(true);
+                      setLlmLoading(true);
+                      setLlmError(null);
+                      setLlmAnalysis(null);
+                      const leagueSettings = getLeagueSettings();
+                      const tradeContext = buildTradeContextForLLM(
+                        tradingAway,
+                        receiving,
+                        rankings,
+                        {
+                          useSavedWeights: true,
+                          rosterSlots: rosterSlots.map((s) => ({
+                            position: s.position,
+                            player: s.player,
+                          })),
+                          leagueSettings,
+                        }
+                      );
+                      try {
+                        const data = await fetchTradeAnalysis(
+                          tradeContext as unknown as Record<string, unknown>
+                        );
+                        if (!isLLMTradeResponse(data)) {
+                          setLlmError("Invalid analysis response from server.");
+                          return;
+                        }
+                        setLlmAnalysis(data);
+                      } catch (e) {
+                        setLlmError(e instanceof Error ? e.message : "Analysis failed");
+                      } finally {
+                        setLlmLoading(false);
+                      }
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 disabled:pointer-events-none text-white text-sm rounded-lg transition-colors"
                   >
                     <BarChart3 className="w-4 h-4" />
-                    Analyze Trade
+                    {llmLoading ? "Analyzing…" : "Analyze Trade"}
                   </button>
                 )}
                 {(tradingAway.length > 0 || receiving.length > 0) && (
@@ -688,6 +730,9 @@ export default function TradeAnalyzerPage() {
               receiving={receiving}
               rankings={rankings}
               rosterSlots={rosterSlots.map((s) => ({ position: s.position, player: s.player }))}
+              llmResponse={llmAnalysis}
+              llmLoading={llmLoading}
+              llmError={llmError}
             />
           </div>
         )}

@@ -4,6 +4,8 @@ import type { FantasyPlayer } from "@/types/players";
 import type { RankingRow } from "@/lib/api";
 import { getLeagueSettings } from "@/lib/league-settings";
 import { buildTradeContextForLLM, type RosterSlotInput } from "@/lib/trade-context";
+import type { LLMTradeResponse } from "@/lib/llm-response";
+import { TradeAnalysisLLM } from "@/components/TradeAnalysisLLM";
 import {
   RadarChart,
   Radar,
@@ -23,18 +25,19 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  ChevronDown,
-  ChevronUp,
   Crosshair,
   X,
 } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 interface TradeEvaluationProps {
   tradingAway: FantasyPlayer[];
   receiving: FantasyPlayer[];
   rankings?: RankingRow[];
   rosterSlots?: RosterSlotInput[];
+  llmResponse?: LLMTradeResponse | null;
+  llmLoading?: boolean;
+  llmError?: string | null;
 }
 
 function getRankingRow(rankings: RankingRow[], playerId: string): RankingRow | undefined {
@@ -53,6 +56,11 @@ function sumStatFromRankings(
     const val = r?.[statKey] ?? 0;
     return acc + (gp > 0 ? val / gp : 0);
   }, 0);
+}
+
+/** Round category delta for charts (nearest 0.01). */
+function roundCategoryDelta(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 function avgPctFromRankings(
@@ -79,8 +87,10 @@ export function TradeEvaluation({
   receiving,
   rankings = [],
   rosterSlots = [],
+  llmResponse = null,
+  llmLoading = false,
+  llmError = null,
 }: TradeEvaluationProps) {
-  const [showInsights, setShowInsights] = useState(false);
   const [statsPlayerId, setStatsPlayerId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,13 +103,11 @@ export function TradeEvaluation({
   }, [statsPlayerId]);
 
   const leagueSettings = getLeagueSettings();
-  const llmContextRef = useRef<ReturnType<typeof buildTradeContextForLLM> | null>(null);
   const tradeContext = buildTradeContextForLLM(tradingAway, receiving, rankings, {
     useSavedWeights: true,
     rosterSlots,
     leagueSettings,
   });
-  llmContextRef.current = tradeContext;
   const otherTargets = tradeContext.other_players_to_target;
   const statsRow = statsPlayerId ? getRankingRow(rankings, statsPlayerId) : undefined;
 
@@ -141,15 +149,6 @@ export function TradeEvaluation({
 
   const awayValue = tradingAway.reduce((s, p) => s + (p.tradeValue ?? 0), 0);
   const recvValue = receiving.reduce((s, p) => s + (p.tradeValue ?? 0), 0);
-  const awayVol =
-    tradingAway.length > 0
-      ? tradingAway.reduce((a, p) => a + (p.volatility ?? 0), 0) / tradingAway.length
-      : 0;
-  const recvVol =
-    receiving.length > 0
-      ? receiving.reduce((a, p) => a + (p.volatility ?? 0), 0) / receiving.length
-      : 0;
-  const volatilityDelta = recvVol - awayVol;
 
   const hasAnyStats =
     awayPpg > 0 || awayRpg > 0 || awayApg > 0 ||
@@ -162,16 +161,17 @@ export function TradeEvaluation({
     { category: "Value", before: awayValue, after: recvValue },
   ];
 
+  /** FG%/FT%: percentage points (×100) so bars match Trade Summary; others: per-game Δ */
   const barData = [
-    { name: "PPG", change: deltas.ppg },
-    { name: "RPG", change: deltas.rpg },
-    { name: "APG", change: deltas.apg },
-    { name: "SPG", change: deltas.spg },
-    { name: "BPG", change: deltas.bpg },
-    { name: "3PM", change: deltas.fg3m },
-    { name: "TOV", change: deltas.tov },
-    { name: "FG%", change: deltas.fg_pct },
-    { name: "FT%", change: deltas.ft_pct },
+    { name: "FG%", change: roundCategoryDelta(deltas.fg_pct * 100), format: "pct" as const },
+    { name: "FT%", change: roundCategoryDelta(deltas.ft_pct * 100), format: "pct" as const },
+    { name: "PPG", change: roundCategoryDelta(deltas.ppg), format: "num" as const },
+    { name: "3PM", change: roundCategoryDelta(deltas.fg3m), format: "num" as const },
+    { name: "RPG", change: roundCategoryDelta(deltas.rpg), format: "num" as const },
+    { name: "APG", change: roundCategoryDelta(deltas.apg), format: "num" as const },
+    { name: "SPG", change: roundCategoryDelta(deltas.spg), format: "num" as const },
+    { name: "BPG", change: roundCategoryDelta(deltas.bpg), format: "num" as const },
+    { name: "TOV", change: roundCategoryDelta(deltas.tov), format: "num" as const },
   ];
 
   const getChangeIndicator = (value: number) => {
@@ -186,45 +186,38 @@ export function TradeEvaluation({
     return "text-gray-400";
   };
 
-  const generateInsights = (): string[] => {
-    if (!hasAnyStats) {
-      return [
-        "Fantasy stats are not available from the backend. Connect a data source for trade insights.",
-      ];
-    }
-    const insights: string[] = [];
-    if (deltas.ppg > 5) insights.push("This trade significantly improves your scoring.");
-    else if (deltas.ppg < -5) insights.push("This trade weakens your scoring depth.");
-    if (deltas.apg > 3) insights.push("Your assist production will increase substantially.");
-    else if (deltas.apg < -3) insights.push("Consider your playmaking needs — this trade reduces assists.");
-    if (deltas.rpg > 3) insights.push("Rebounding gets a boost with this trade.");
-    else if (deltas.rpg < -3) insights.push("This trade weakens rebounding depth.");
-    if (deltas.spg > 1) insights.push("Steals production improves.");
-    if (deltas.bpg > 0.5) insights.push("Blocks get a boost.");
-    if (volatilityDelta > 10) insights.push("⚠️ Injury risk increases with this trade.");
-    else if (volatilityDelta < -10) insights.push("✅ This trade reduces your injury risk exposure.");
-    if (insights.length === 0) insights.push("This appears to be a relatively balanced trade.");
-    return insights;
-  };
+  const tradeValueDelta = recvValue - awayValue;
 
   return (
     <div className="mt-8 space-y-6">
+      <TradeAnalysisLLM
+        tradingAway={tradingAway}
+        receiving={receiving}
+        valueDelta={tradeValueDelta}
+        ppgDelta={deltas.ppg}
+        apgDelta={deltas.apg}
+        llmResponse={llmResponse}
+        llmLoading={llmLoading}
+        llmError={llmError}
+      />
+
       <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700 overflow-visible">
         <h2 className="text-xl font-bold text-white mb-6">Trade Summary</h2>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3 overflow-visible">
           {[
-            { key: "ppg", label: "PPG", plain: "Points per game", value: deltas.ppg, decimals: 1 },
-            { key: "rpg", label: "RPG", plain: "Rebounds per game", value: deltas.rpg, decimals: 1 },
-            { key: "apg", label: "APG", plain: "Assists per game", value: deltas.apg, decimals: 1 },
-            { key: "spg", label: "SPG", plain: "Steals per game", value: deltas.spg, decimals: 2 },
-            { key: "bpg", label: "BPG", plain: "Blocks per game", value: deltas.bpg, decimals: 2 },
-            { key: "fg3m", label: "3PM", plain: "Three-pointers made per game", value: deltas.fg3m, decimals: 2 },
-            { key: "tov", label: "TOV", plain: "Turnovers per game", value: deltas.tov, decimals: 2, inverted: true },
-            { key: "fg_pct", label: "FG%", plain: "Field goal percentage", value: deltas.fg_pct, decimals: 1, pct: true },
-            { key: "ft_pct", label: "FT%", plain: "Free throw percentage", value: deltas.ft_pct, decimals: 1, pct: true },
-          ].map(({ key, label, plain, value, decimals, inverted, pct }) => {
-            const displayVal = pct ? (value * 100).toFixed(decimals) : value.toFixed(decimals);
+            { key: "fg_pct", label: "FG%", plain: "Field goal percentage", value: deltas.fg_pct, pct: true },
+            { key: "ft_pct", label: "FT%", plain: "Free throw percentage", value: deltas.ft_pct, pct: true },
+            { key: "ppg", label: "PPG", plain: "Points per game", value: deltas.ppg },
+            { key: "fg3m", label: "3PM", plain: "Three-pointers made per game", value: deltas.fg3m },
+            { key: "rpg", label: "RPG", plain: "Rebounds per game", value: deltas.rpg },
+            { key: "apg", label: "APG", plain: "Assists per game", value: deltas.apg },
+            { key: "spg", label: "SPG", plain: "Steals per game", value: deltas.spg },
+            { key: "bpg", label: "BPG", plain: "Blocks per game", value: deltas.bpg },
+            { key: "tov", label: "TOV", plain: "Turnovers per game", value: deltas.tov, inverted: true },
+          ].map(({ key, label, plain, value, inverted, pct }) => {
+            const rounded = pct ? roundCategoryDelta(value * 100) : roundCategoryDelta(value);
+            const displayVal = rounded.toFixed(2);
             const colorVal = inverted ? -value : value;
             return (
               <div
@@ -240,7 +233,7 @@ export function TradeEvaluation({
                 <div className="text-xs text-gray-400 mb-1">{label} Δ</div>
                 <div className={`text-lg font-bold flex items-center gap-1.5 ${getChangeColor(colorVal)}`}>
                   {getChangeIndicator(colorVal)}
-                  {value > 0 ? "+" : ""}
+                  {rounded > 0 ? "+" : ""}
                   {pct ? `${displayVal}%` : displayVal}
                 </div>
               </div>
@@ -273,6 +266,14 @@ export function TradeEvaluation({
                 <XAxis dataKey="name" tick={{ fill: "#9CA3AF" }} />
                 <YAxis tick={{ fill: "#9CA3AF" }} />
                 <Tooltip
+                  formatter={(value, _label, item) => {
+                    const raw = Array.isArray(value) ? value[0] : value;
+                    const v = typeof raw === "number" ? raw : Number(raw);
+                    if (raw == null || Number.isNaN(v)) return ["—", "Δ"];
+                    const payload = item?.payload as { format?: string } | undefined;
+                    const isPct = payload?.format === "pct";
+                    return isPct ? [`${v.toFixed(2)}%`, "Δ"] : [v.toFixed(2), "Δ"];
+                  }}
                   contentStyle={{
                     backgroundColor: "#1F2937",
                     border: "1px solid #374151",
@@ -286,36 +287,6 @@ export function TradeEvaluation({
           </div>
         </div>
       )}
-
-      <div className="bg-gradient-to-r from-orange-500/10 to-orange-600/10 rounded-lg border border-orange-500/30">
-        <button
-          type="button"
-          onClick={() => setShowInsights(!showInsights)}
-          className="w-full p-4 flex items-center justify-between text-left"
-        >
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-semibold text-white">Trade Insights</span>
-          </div>
-          {showInsights ? (
-            <ChevronUp className="w-5 h-5 text-gray-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-gray-400" />
-          )}
-        </button>
-        {showInsights && (
-          <div className="px-4 pb-4 space-y-2">
-            {generateInsights().map((insight, index) => (
-              <div key={index} className="text-sm text-gray-300 flex items-start gap-2">
-                <span className="text-orange-400 mt-1">•</span>
-                <span>{insight}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
       {otherTargets.length > 0 && (
         <div className="bg-gray-800/50 rounded-lg border border-gray-700 px-3 py-2.5 overflow-x-auto">

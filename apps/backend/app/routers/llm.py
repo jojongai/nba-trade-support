@@ -1,15 +1,25 @@
 """LLM endpoints for trade analysis."""
+import json
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.openai_service import generate as openai_generate, generate_stream as openai_generate_stream
+from app.services.openai_service import (
+    generate as openai_generate,
+    generate_stream as openai_generate_stream,
+    generate_trade_analysis_json,
+)
 
 router = APIRouter(prefix="/llm", tags=["llm"])
 
 
 class ChatRequest(BaseModel):
     prompt: str = ""
+
+
+class TradeAnalyzeRequest(BaseModel):
+    trade_context: dict
 
 
 @router.get("/test")
@@ -28,6 +38,23 @@ def openai_chat(body: ChatRequest) -> dict[str, str]:
     try:
         response = openai_generate(body.prompt or "return hi")
         return {"response": response}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM error: {e!s}") from e
+
+
+@router.post("/openai/trade-analyze")
+def openai_trade_analyze(body: TradeAnalyzeRequest) -> dict:
+    """Run GPT-4o on structured trade context; returns JSON matching LLMTradeResponse."""
+    try:
+        ctx_str = json.dumps(body.trade_context)
+        text = generate_trade_analysis_json(ctx_str)
+        return json.loads(text)
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"LLM error: {e!s}") from e
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=502, detail=f"Invalid JSON from model: {e!s}"
+        ) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM error: {e!s}") from e
 
