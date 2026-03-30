@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { Search, X, RefreshCw, UserPlus, BarChart3 } from "lucide-react";
+import { Search, X, RefreshCw, UserPlus, BarChart3, Info } from "lucide-react";
 import { getLeagueSettings, DEFAULT_ROSTER_SETTINGS, type RosterSettings } from "@/lib/league-settings";
 import { fetchRankings, fetchTeams, fetchTradeAnalysis, type RankingRow, type Team } from "@/lib/api";
 import { buildTradeContextForLLM } from "@/lib/trade-context";
@@ -158,6 +158,9 @@ export default function TradeAnalyzerPage() {
   const [llmAnalysis, setLlmAnalysis] = useState<LLMTradeResponse | null>(null);
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmError, setLlmError] = useState<string | null>(null);
+  const [showRosterIncompleteToast, setShowRosterIncompleteToast] = useState(false);
+  const [showLeagueSettingsConfirmModal, setShowLeagueSettingsConfirmModal] =
+    useState(false);
   const hasHydratedRef = useRef(false);
   const skipFirstPersistRef = useRef(true);
   const tradeSummaryRef = useRef<HTMLDivElement>(null);
@@ -251,6 +254,21 @@ export default function TradeAnalyzerPage() {
     setLlmError(null);
     setLlmLoading(false);
   }, [tradingAway, receiving]);
+
+  useEffect(() => {
+    if (!showRosterIncompleteToast) return;
+    const t = window.setTimeout(() => setShowRosterIncompleteToast(false), 6500);
+    return () => window.clearTimeout(t);
+  }, [showRosterIncompleteToast]);
+
+  useEffect(() => {
+    if (!showLeagueSettingsConfirmModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowLeagueSettingsConfirmModal(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showLeagueSettingsConfirmModal]);
 
   // Scroll to trade summary when analysis is requested
   useEffect(() => {
@@ -440,9 +458,97 @@ export default function TradeAnalyzerPage() {
 
   return (
     <div className="min-h-screen bg-[#0E1117] py-8">
+      {showRosterIncompleteToast && (
+        <div
+          className="fixed left-1/2 top-4 z-[200] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-amber-500/40 bg-gray-900/95 px-4 py-3 shadow-lg backdrop-blur-sm"
+          role="status"
+        >
+          <div className="flex gap-3">
+            <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden />
+            <p className="flex-1 text-sm leading-snug text-gray-100">
+              Please add a player to every roster slot before analyzing your team.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowRosterIncompleteToast(false)}
+              className="shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+              aria-label="Dismiss notification"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showLeagueSettingsConfirmModal && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/70"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="league-settings-confirm-title"
+          onClick={() => setShowLeagueSettingsConfirmModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-gray-600 bg-gray-900 p-6 shadow-xl text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="league-settings-confirm-title"
+              className="text-lg font-semibold text-white mb-2"
+            >
+              Before we analyze
+            </h2>
+            <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+              Confirm your league settings (format, scoring, roster size, and number of
+              teams) look right. You can update them anytime in League Settings.
+            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
+              <Link
+                href="/league-settings"
+                className="inline-flex items-center justify-center rounded-lg border border-gray-600 bg-gray-800 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 sm:order-1"
+                onClick={() => setShowLeagueSettingsConfirmModal(false)}
+              >
+                Click here to edit
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLeagueSettingsConfirmModal(false);
+                  document.getElementById("current-roster")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
+                }}
+                className="inline-flex items-center justify-center rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-400 sm:order-2"
+              >
+                Click here to continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Trade Analyzer</h1>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-3xl font-normal text-white">Trade Analyzer</h1>
+          <button
+            type="button"
+            onClick={() => {
+              if (filledCount < rosterSlots.length) {
+                setShowRosterIncompleteToast(true);
+                document.getElementById("current-roster")?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+                return;
+              }
+              setShowLeagueSettingsConfirmModal(true);
+            }}
+            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-1.5 text-base font-normal text-white shadow-sm transition-colors hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2 focus:ring-offset-[#0E1117]"
+          >
+            <BarChart3 className="h-5 w-5 shrink-0" />
+            Analyze my Team
+          </button>
         </div>
 
         {rankingsError && (
@@ -451,7 +557,7 @@ export default function TradeAnalyzerPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* LEFT: My Team */}
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6">
+          <div id="current-roster" className="bg-gray-800/50 rounded-xl border border-gray-700 p-6 scroll-mt-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-white">Your Current Roster</h2>
               <span className="text-sm text-gray-400">

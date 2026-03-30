@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronUp,
   Users,
+  Hash,
 } from "lucide-react";
 import {
   getLeagueSettings,
@@ -137,6 +138,7 @@ export default function LeagueSettingsPage() {
   const [showAdvancedPoints, setShowAdvancedPoints] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [rosterSettings, setRosterSettings] = useState<Record<keyof RosterSettings, number | "">>(DEFAULT_ROSTER_SETTINGS);
+  const [teamsInLeague, setTeamsInLeague] = useState<number | "">(12);
   const [rosterSettingsOpen, setRosterSettingsOpen] = useState(true);
   const [pointsSettingsOpen, setPointsSettingsOpen] = useState(true);
   const [categorySettingsOpen, setCategorySettingsOpen] = useState(true);
@@ -148,6 +150,12 @@ export default function LeagueSettingsPage() {
   };
 
   const rosterNum = (v: number | ""): number => (v === "" || v == null ? 0 : Number(v));
+
+  const normalizeTeamsInLeague = (): number => {
+    const raw = rosterNum(teamsInLeague);
+    if (raw === 0) return 12;
+    return Math.min(36, Math.max(2, Math.floor(raw)));
+  };
 
   useEffect(() => {
     const saved = getLeagueSettings();
@@ -166,6 +174,14 @@ export default function LeagueSettingsPage() {
     if (saved.selectedPreset) setSelectedPreset(saved.selectedPreset);
     if (saved.rosterSettings && typeof saved.rosterSettings === "object")
       setRosterSettings((prev) => ({ ...DEFAULT_ROSTER_SETTINGS, ...prev, ...saved.rosterSettings } as Record<keyof RosterSettings, number | "">));
+    if (
+      typeof saved.teamsInLeague === "number" &&
+      Number.isFinite(saved.teamsInLeague) &&
+      saved.teamsInLeague >= 2 &&
+      saved.teamsInLeague <= 36
+    ) {
+      setTeamsInLeague(saved.teamsInLeague);
+    }
   }, []);
 
   const handleSave = () => {
@@ -187,14 +203,17 @@ export default function LeagueSettingsPage() {
         util: rosterNum(rosterSettings.util),
         bench: rosterNum(rosterSettings.bench),
       };
+      const teamsInLeagueToSave = normalizeTeamsInLeague();
       const settings: LeagueSettings = {
         leagueName,
         leagueFormat,
+        teamsInLeague: teamsInLeagueToSave,
         selectedPreset,
         pointsSettings: numericPoints,
         rosterSettings: rosterToSave,
       };
       setLeagueSettings(settings);
+      setTeamsInLeague(teamsInLeagueToSave);
       setPointsSettings(numericPoints);
       setRosterSettings(rosterToSave);
       showSaveSuccess();
@@ -211,15 +230,18 @@ export default function LeagueSettingsPage() {
       util: rosterNum(rosterSettings.util),
       bench: rosterNum(rosterSettings.bench),
     };
+    const teamsInLeagueToSave = normalizeTeamsInLeague();
     const settings: LeagueSettings = {
       leagueName,
       leagueFormat,
+      teamsInLeague: teamsInLeagueToSave,
       selectedPreset,
       categories: categories,
       categoryFormat,
       rosterSettings: rosterToSave,
     };
     setLeagueSettings(settings);
+    setTeamsInLeague(teamsInLeagueToSave);
     setRosterSettings(rosterToSave);
     showSaveSuccess();
   };
@@ -351,7 +373,7 @@ export default function LeagueSettingsPage() {
             </button>
           </div>
         )}
-        <div className="mb-8">
+        <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold text-white mb-2">
             League Settings
           </h1>
@@ -359,8 +381,8 @@ export default function LeagueSettingsPage() {
 
         <div className="space-y-6">
           {/* Basic Settings */}
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6">
-            <div className="flex items-center gap-3 mb-6">
+          <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6 text-center">
+            <div className="flex items-center justify-center gap-3 mb-6">
               <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center">
                 <Settings className="w-6 h-6 text-orange-400" />
               </div>
@@ -374,7 +396,7 @@ export default function LeagueSettingsPage() {
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   League Format
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
                   <button
                     type="button"
                     onClick={() => setLeagueFormat("points")}
@@ -409,6 +431,31 @@ export default function LeagueSettingsPage() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* League size */}
+          <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6 text-center">
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                <Hash className="w-6 h-6 text-blue-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-white">League size</h2>
+            </div>
+            <div className="max-w-xs mx-auto">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Number of teams
+              </label>
+              <ThemedNumberInput
+                value={
+                  teamsInLeague === "" || teamsInLeague == null
+                    ? ""
+                    : teamsInLeague
+                }
+                onChange={(v) => setTeamsInLeague(v)}
+                min={2}
+                allowEmpty
+              />
             </div>
           </div>
 
@@ -761,7 +808,7 @@ export default function LeagueSettingsPage() {
           )}
 
           {/* Save Button */}
-          <div className="flex justify-end">
+          <div className="flex justify-center">
             <button
               type="button"
               onClick={handleSave}

@@ -259,6 +259,12 @@ export function buildTradeContextForLLM(
   if (leagueSettings) {
     leagueContext.league_name = leagueSettings.leagueName;
     leagueContext.league_format = leagueSettings.leagueFormat;
+    if (
+      leagueSettings.teamsInLeague != null &&
+      Number.isFinite(leagueSettings.teamsInLeague)
+    ) {
+      leagueContext.teams_in_league = leagueSettings.teamsInLeague;
+    }
     leagueContext.roster_requirements = leagueSettings.rosterSettings;
     if (leagueSettings.leagueFormat === "points" && leagueSettings.pointsSettings) {
       leagueContext.points_settings = leagueSettings.pointsSettings;

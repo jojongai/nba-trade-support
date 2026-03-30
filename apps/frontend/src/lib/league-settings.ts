@@ -43,6 +43,8 @@ export const DEFAULT_ROSTER_SETTINGS: RosterSettings = {
 export interface LeagueSettings {
   leagueName: string;
   leagueFormat: "points" | "category";
+  /** Number of teams in the fantasy league (typically 8–14). */
+  teamsInLeague?: number;
   pointsSettings?: PointsSettings;
   categories?: CategorySettings[];
   categoryFormat?: "h2h" | "roto";

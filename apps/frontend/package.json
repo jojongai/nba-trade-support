@@ -6,7 +6,9 @@
     "node": ">=18.17.0"
   },
   "scripts": {
+    "clean": "rm -rf .next",
     "dev": "next dev",
+    "dev:clean": "npm run clean && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

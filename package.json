@@ -6,7 +6,9 @@
     "apps/*"
   ],
   "scripts": {
+    "clean": "npm run clean --workspace=apps/frontend",
     "dev": "npm run dev --workspace=apps/frontend",
+    "dev:clean": "npm run dev:clean --workspace=apps/frontend",
     "build": "npm run build --workspace=apps/frontend",
     "start": "npm run start --workspace=apps/frontend",
     "lint": "npm run lint --workspaces --if-present"

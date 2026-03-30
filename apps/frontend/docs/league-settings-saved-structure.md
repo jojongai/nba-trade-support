@@ -10,6 +10,7 @@ Stored in `localStorage` under key **`nba-trade-support/league-settings`** as JS
 {
   "leagueName": "My Fantasy League",
   "leagueFormat": "points",
+  "teamsInLeague": 12,
   "selectedPreset": "custom",
   "pointsSettings": {
     "points": 1,
@@ -36,6 +37,7 @@ Stored in `localStorage` under key **`nba-trade-support/league-settings`** as JS
 
 - **`leagueName`** (string) – display name.
 - **`leagueFormat`** – always `"points"` for this case.
+- **`teamsInLeague`** (optional number) – how many teams are in the league (2–36; defaults to 12 on save if empty).
 - **`selectedPreset`** – `"custom"` | `"espn"` | `"yahoo"` | `"sleeper"`.
 - **`pointsSettings`** – one number per stat key (fantasy point value per stat). Negative = penalty. Keys: `points`, `assists`, `rebounds`, `offensiveRebounds`, `defensiveRebounds`, `steals`, `blocks`, `turnovers`, `fieldGoalsMade`, `fieldGoalsAttempted`, `freeThrowsMade`, `freeThrowsAttempted`, `threePointersMade`, `doubleDoubles`, `tripleDoubles`, `technicalFouls`, `flagrantFouls`, `minutesPlayed`.
 
@@ -47,6 +49,7 @@ Stored in `localStorage` under key **`nba-trade-support/league-settings`** as JS
 {
   "leagueName": "My Fantasy League",
   "leagueFormat": "category",
+  "teamsInLeague": 12,
   "selectedPreset": "custom",
   "categories": [
     { "name": "Points (PTS)", "enabled": true },
@@ -67,6 +70,7 @@ Stored in `localStorage` under key **`nba-trade-support/league-settings`** as JS
 
 - **`leagueName`** (string) – display name.
 - **`leagueFormat`** – always `"category"` for this case.
+- **`teamsInLeague`** (optional number) – how many teams are in the league (2–36; defaults to 12 on save if empty).
 - **`selectedPreset`** – only relevant for points; still saved for consistency.
 - **`categories`** – array of `{ name: string, enabled: boolean, inverted?: boolean }`. `inverted: true` = lower is better (e.g. Turnovers).
 - **`categoryFormat`** – `"h2h"` (head-to-head) | `"roto"` (rotisserie).
