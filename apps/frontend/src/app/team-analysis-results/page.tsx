@@ -30,8 +30,9 @@ export default function TeamAnalysisResultsPage() {
       <div className="max-w-lg mx-auto px-4 py-16 text-center">
         <h1 className="text-xl font-semibold text-white mb-2">No team analysis yet</h1>
         <p className="text-gray-400 text-sm mb-6">
-          Run &quot;Compare my roster to this league&quot; on the Trade Analyzer. Results are saved
-          automatically when analysis completes.
+          Run <strong className="text-gray-300">Analyze my Team</strong> →{" "}
+          <strong className="text-gray-300">Continue</strong> on the Trade Analyzer. When the
+          pipeline finishes, you are taken here automatically.
         </p>
         <Link
           href="/trade-analyzer"

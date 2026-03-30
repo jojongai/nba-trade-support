@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Search, X, RefreshCw, UserPlus, BarChart3, Info } from "lucide-react";
 import { getLeagueSettings, DEFAULT_ROSTER_SETTINGS, type RosterSettings } from "@/lib/league-settings";
 import {
@@ -198,13 +199,14 @@ export default function TradeAnalyzerPage() {
   );
   const [draftSimFromCache, setDraftSimFromCache] = useState(false);
   const [teamAnalysis, setTeamAnalysis] = useState<TeamAnalysisResponse | null>(null);
-  const [teamAnalysisLoading, setTeamAnalysisLoading] = useState(false);
   const [teamAnalysisError, setTeamAnalysisError] = useState<string | null>(null);
   const [tradeTargetsLlm, setTradeTargetsLlm] = useState<TradeTargetsLLMResponse | null>(
     null
   );
-  const [tradeTargetsLlmLoading, setTradeTargetsLlmLoading] = useState(false);
-  const [tradeTargetsLlmError, setTradeTargetsLlmError] = useState<string | null>(null);
+  const [pipelineStage, setPipelineStage] = useState<"draft" | "analyze" | "llm" | null>(
+    null
+  );
+  const router = useRouter();
   const hasHydratedRef = useRef(false);
   const skipFirstPersistRef = useRef(true);
   const tradeSummaryRef = useRef<HTMLDivElement>(null);
@@ -348,7 +350,9 @@ export default function TradeAnalyzerPage() {
 
   const handleContinueAnalyzeTeam = async () => {
     setDraftSimError(null);
+    setTeamAnalysisError(null);
     setDraftSimLoading(true);
+    setPipelineStage("draft");
     try {
       const settings = getLeagueSettings();
       const numTeams = settings?.teamsInLeague ?? 12;
@@ -365,121 +369,94 @@ export default function TradeAnalyzerPage() {
         );
         return;
       }
+
+      const { roster_players, roster_slots: slotsForAnalyze } =
+        buildRosterPlayersForTeamAnalysis(rosterSlots, rankings, tradeValueMap);
+      if (roster_players.length === 0) {
+        setDraftSimError("Add players to every roster slot before continuing.");
+        return;
+      }
+
       const fingerprint = buildDraftSimulationFingerprint(
         numTeams,
         rosterSize,
         DEFAULT_DRAFT_POSITION_MINS,
         players
       );
+
+      let benchmarks: LeagueBenchmarksApi;
+
       const cached = readDraftSimCache();
       if (cached?.fingerprint === fingerprint) {
+        benchmarks = cached.benchmarks;
         setDraftSimTeams(cached.teams);
-        setDraftSimBenchmarks(cached.benchmarks);
+        setDraftSimBenchmarks(benchmarks);
         setDraftSimFromCache(true);
-        requestAnimationFrame(() => {
-          document.getElementById("draft-simulation")?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
+      } else {
+        const { teams, benchmarks: bench } = await fetchDraftSimulate({
+          num_teams: numTeams,
+          roster_size: rosterSize,
+          requirements: DEFAULT_DRAFT_POSITION_MINS,
+          players,
         });
+        writeDraftSimCache({ fingerprint, teams, benchmarks: bench });
+        benchmarks = bench;
+        setDraftSimTeams(teams);
+        setDraftSimBenchmarks(benchmarks);
+        setDraftSimFromCache(false);
+      }
+
+      if (!benchmarksHaveCategoryDistributions(benchmarks)) {
+        clearDraftSimCache();
+        setDraftSimTeams(null);
+        setDraftSimBenchmarks(null);
+        setDraftSimFromCache(false);
+        setDraftSimError(
+          "Benchmarks were missing category distributions. Try Continue again."
+        );
         return;
       }
 
-      const { teams, benchmarks } = await fetchDraftSimulate({
-        num_teams: numTeams,
-        roster_size: rosterSize,
-        requirements: DEFAULT_DRAFT_POSITION_MINS,
-        players,
-      });
-      writeDraftSimCache({ fingerprint, teams, benchmarks });
-      setDraftSimTeams(teams);
-      setDraftSimBenchmarks(benchmarks);
-      setDraftSimFromCache(false);
-      requestAnimationFrame(() => {
-        document.getElementById("draft-simulation")?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      });
-    } catch (e) {
-      setDraftSimError(e instanceof Error ? e.message : "Draft simulation failed.");
-      setDraftSimTeams(null);
-      setDraftSimBenchmarks(null);
-    } finally {
-      setDraftSimLoading(false);
-      setShowLeagueSettingsConfirmModal(false);
-    }
-  };
-
-  const handleTeamVsLeague = async () => {
-    if (!draftSimBenchmarks) {
-      setTeamAnalysisError("Run the draft simulation first.");
-      return;
-    }
-    if (!benchmarksHaveCategoryDistributions(draftSimBenchmarks)) {
-      clearDraftSimCache();
-      setDraftSimTeams(null);
-      setDraftSimBenchmarks(null);
-      setDraftSimFromCache(false);
-      setDraftSimError(
-        "Stale simulation cleared. Run Analyze my Team → Continue once to rebuild benchmarks with full category data."
-      );
-      setTeamAnalysisError(
-        "Benchmarks were missing category distributions (usually an old browser save). Run Analyze my Team → Continue again."
-      );
-      return;
-    }
-    setTeamAnalysisError(null);
-    setTeamAnalysisLoading(true);
-    try {
-      const settings = getLeagueSettings();
-      const numTeams = settings?.teamsInLeague ?? 12;
-      const rosterSize = 12;
+      setPipelineStage("analyze");
       const pool = buildDraftPlayerPoolFromRankings(rankings, tradeValueMap);
-      const { roster_players, roster_slots } = buildRosterPlayersForTeamAnalysis(
-        rosterSlots,
-        rankings,
-        tradeValueMap
-      );
-      if (roster_players.length === 0) {
-        setTeamAnalysisError("Add players to your roster to compare.");
-        return;
-      }
       const player_values = buildPlayerTradeValuesMap(rankings, tradeValueMap);
-      const result = await fetchTeamAnalyze({
-        benchmarks: draftSimBenchmarks,
+      const teamAnalysisResult = await fetchTeamAnalyze({
+        benchmarks,
         roster_players,
-        roster_slots,
+        roster_slots: slotsForAnalyze,
         draft_pool_values: pool.map((p) => p.value),
         total_league_slots: numTeams * rosterSize,
         player_values,
       });
-      setTeamAnalysis(result);
+      setTeamAnalysis(teamAnalysisResult);
       setTradeTargetsLlm(null);
-    } catch (e) {
-      setTeamAnalysisError(
-        e instanceof Error ? e.message : "Team analysis failed."
-      );
-      setTeamAnalysis(null);
-    } finally {
-      setTeamAnalysisLoading(false);
-    }
-  };
 
-  const handleTradeTargetsLLM = async () => {
-    if (!teamAnalysis) return;
-    setTradeTargetsLlmError(null);
-    setTradeTargetsLlmLoading(true);
-    try {
-      const out = await fetchTradeTargetsLLM(teamAnalysis);
-      setTradeTargetsLlm(out);
+      setPipelineStage("llm");
+      let llmResult: TradeTargetsLLMResponse | null = null;
+      try {
+        llmResult = await fetchTradeTargetsLLM(teamAnalysisResult);
+        setTradeTargetsLlm(llmResult);
+      } catch {
+        setTradeTargetsLlm(null);
+      }
+
+      saveTeamAnalysisResultsPayload({
+        teamAnalysis: teamAnalysisResult,
+        llm: llmResult,
+      });
+      router.push("/team-analysis-results");
     } catch (e) {
-      setTradeTargetsLlmError(
-        e instanceof Error ? e.message : "Trade targets LLM failed."
-      );
+      const msg = e instanceof Error ? e.message : "Analysis pipeline failed.";
+      setDraftSimError(msg);
+      setTeamAnalysisError(msg);
+      setDraftSimTeams(null);
+      setDraftSimBenchmarks(null);
+      setTeamAnalysis(null);
       setTradeTargetsLlm(null);
     } finally {
-      setTradeTargetsLlmLoading(false);
+      setDraftSimLoading(false);
+      setPipelineStage(null);
+      setShowLeagueSettingsConfirmModal(false);
     }
   };
 
@@ -696,10 +673,18 @@ export default function TradeAnalyzerPage() {
                   id="league-settings-confirm-title"
                   className="text-lg font-semibold text-white mt-6 mb-1"
                 >
-                  Running simulation…
+                  {pipelineStage === "analyze"
+                    ? "Analyzing your roster…"
+                    : pipelineStage === "llm"
+                      ? "Generating AI insights…"
+                      : "Running simulation…"}
                 </h2>
-                <p className="text-sm text-gray-400">
-                  Building synthetic league benchmarks from your player pool.
+                <p className="text-sm text-gray-400 max-w-xs">
+                  {pipelineStage === "analyze"
+                    ? "Comparing your team to the synthetic league and trade targets."
+                    : pipelineStage === "llm"
+                      ? "Team overview, strengths, weaknesses, and trade ideas."
+                      : "Building synthetic league benchmarks from your player pool."}
                 </p>
               </div>
             ) : (
@@ -767,7 +752,9 @@ export default function TradeAnalyzerPage() {
           <p className="mb-4 text-sm text-red-400">{draftSimError}</p>
         )}
 
-        {draftSimTeams && draftSimTeams.length > 0 && (
+        {draftSimTeams &&
+          draftSimTeams.length > 0 &&
+          !draftSimLoading && (
           <div
             id="draft-simulation"
             className="mb-6 rounded-xl border border-gray-700 bg-gray-800/50 p-4 scroll-mt-8"
@@ -806,45 +793,13 @@ export default function TradeAnalyzerPage() {
                 </div>
               </div>
             )}
-            <div className="flex flex-wrap gap-2 mb-3">
-              <button
-                type="button"
-                disabled={
-                  teamAnalysisLoading ||
-                  rankingsLoading ||
-                  filledCount < rosterSlots.length
-                }
-                onClick={() => void handleTeamVsLeague()}
-                className="inline-flex items-center rounded-lg border border-orange-500/60 bg-orange-500/10 px-3 py-2 text-sm font-medium text-orange-300 hover:bg-orange-500/20 disabled:opacity-50 disabled:pointer-events-none"
-              >
-                {teamAnalysisLoading ? "Analyzing roster…" : "Compare my roster to this league"}
-              </button>
-              {teamAnalysis && (
-                <>
-                  <button
-                    type="button"
-                    disabled={tradeTargetsLlmLoading}
-                    onClick={() => void handleTradeTargetsLLM()}
-                    className="inline-flex items-center rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700 disabled:opacity-50"
-                  >
-                    {tradeTargetsLlmLoading
-                      ? "Generating overview…"
-                      : "LLM: team overview & trade ideas"}
-                  </button>
-                  <Link
-                    href="/team-analysis-results"
-                    className="inline-flex items-center rounded-lg border border-gray-600 bg-gray-900/80 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-800"
-                  >
-                    Team analysis results page
-                  </Link>
-                </>
-              )}
-            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Full analysis (draft sim → league comparison → AI) runs automatically when you click
+              Continue in the league settings step; you are sent to the Team analysis page when it
+              finishes.
+            </p>
             {teamAnalysisError && (
               <p className="text-sm text-red-400 mb-2">{teamAnalysisError}</p>
-            )}
-            {tradeTargetsLlmError && (
-              <p className="text-sm text-red-400 mb-2">{tradeTargetsLlmError}</p>
             )}
             {teamAnalysis && (
               <div className="mb-4 rounded-lg border border-gray-600 bg-gray-900/50 p-3 text-sm text-gray-300 space-y-2">
