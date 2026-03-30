@@ -14,7 +14,7 @@ load_dotenv(dotenv_path=_backend_dir.parent.parent / ".env")  # project root
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import data, llm, players, teams
+from app.routers import data, draft, llm, players, teams
 
 app = FastAPI(
     title="NBA Trade Support API",
@@ -34,6 +34,7 @@ app.include_router(teams.router)
 app.include_router(players.router)
 app.include_router(data.router)
 app.include_router(llm.router)
+app.include_router(draft.router)
 
 
 @app.get("/health")

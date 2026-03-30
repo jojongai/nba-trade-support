@@ -4,7 +4,19 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Search, X, RefreshCw, UserPlus, BarChart3, Info } from "lucide-react";
 import { getLeagueSettings, DEFAULT_ROSTER_SETTINGS, type RosterSettings } from "@/lib/league-settings";
-import { fetchRankings, fetchTeams, fetchTradeAnalysis, type RankingRow, type Team } from "@/lib/api";
+import {
+  fetchRankings,
+  fetchTeams,
+  fetchTradeAnalysis,
+  fetchDraftSimulate,
+  type DraftSimulateTeam,
+  type RankingRow,
+  type Team,
+} from "@/lib/api";
+import {
+  buildDraftPlayerPoolFromRankings,
+  DEFAULT_DRAFT_POSITION_MINS,
+} from "@/lib/draft-sim";
 import { buildTradeContextForLLM } from "@/lib/trade-context";
 import { isLLMTradeResponse, type LLMTradeResponse } from "@/lib/llm-response";
 import { computeTradeValues } from "@/lib/trade-value";
@@ -161,6 +173,9 @@ export default function TradeAnalyzerPage() {
   const [showRosterIncompleteToast, setShowRosterIncompleteToast] = useState(false);
   const [showLeagueSettingsConfirmModal, setShowLeagueSettingsConfirmModal] =
     useState(false);
+  const [draftSimLoading, setDraftSimLoading] = useState(false);
+  const [draftSimError, setDraftSimError] = useState<string | null>(null);
+  const [draftSimTeams, setDraftSimTeams] = useState<DraftSimulateTeam[] | null>(null);
   const hasHydratedRef = useRef(false);
   const skipFirstPersistRef = useRef(true);
   const tradeSummaryRef = useRef<HTMLDivElement>(null);
@@ -301,6 +316,47 @@ export default function TradeAnalyzerPage() {
     () => computeTradeValues(rankings, { useSavedWeights: true }),
     [rankings]
   );
+
+  const handleContinueAnalyzeTeam = async () => {
+    setShowLeagueSettingsConfirmModal(false);
+    setDraftSimError(null);
+    setDraftSimLoading(true);
+    try {
+      const settings = getLeagueSettings();
+      const numTeams = settings?.teamsInLeague ?? 12;
+      if (numTeams < 2 || numTeams > 36) {
+        setDraftSimError("Set the number of teams in League Settings (2–36).");
+        return;
+      }
+      const rosterSize = 12;
+      const minPool = numTeams * rosterSize;
+      const players = buildDraftPlayerPoolFromRankings(rankings, tradeValueMap);
+      if (players.length < minPool) {
+        setDraftSimError(
+          `Need at least ${minPool} ranked players in the pool; only ${players.length} available.`
+        );
+        return;
+      }
+      const { teams } = await fetchDraftSimulate({
+        num_teams: numTeams,
+        roster_size: rosterSize,
+        requirements: DEFAULT_DRAFT_POSITION_MINS,
+        players,
+      });
+      setDraftSimTeams(teams);
+      requestAnimationFrame(() => {
+        document.getElementById("draft-simulation")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    } catch (e) {
+      setDraftSimError(e instanceof Error ? e.message : "Draft simulation failed.");
+      setDraftSimTeams(null);
+    } finally {
+      setDraftSimLoading(false);
+    }
+  };
 
   const allPlayers = useMemo(
     () => rankings.map((row) => rankingRowToFantasyPlayer(row, tradeValueMap)),
@@ -512,16 +568,11 @@ export default function TradeAnalyzerPage() {
               </Link>
               <button
                 type="button"
-                onClick={() => {
-                  setShowLeagueSettingsConfirmModal(false);
-                  document.getElementById("current-roster")?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "start",
-                  });
-                }}
-                className="inline-flex items-center justify-center rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-400 sm:order-2"
+                disabled={draftSimLoading || rankingsLoading}
+                onClick={() => void handleContinueAnalyzeTeam()}
+                className="inline-flex items-center justify-center rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-60 disabled:pointer-events-none sm:order-2"
               >
-                Click here to continue
+                {draftSimLoading ? "Running simulation…" : "Click here to continue"}
               </button>
             </div>
           </div>
@@ -553,6 +604,47 @@ export default function TradeAnalyzerPage() {
 
         {rankingsError && (
           <p className="mb-4 text-sm text-red-400">{rankingsError}</p>
+        )}
+        {draftSimError && (
+          <p className="mb-4 text-sm text-red-400">{draftSimError}</p>
+        )}
+
+        {draftSimTeams && draftSimTeams.length > 0 && (
+          <div
+            id="draft-simulation"
+            className="mb-6 rounded-xl border border-gray-700 bg-gray-800/50 p-4 scroll-mt-8"
+          >
+            <h3 className="text-lg font-semibold text-white mb-1">Simulated draft</h3>
+            <p className="text-sm text-gray-400 mb-3">
+              {draftSimTeams.length} teams × {draftSimTeams[0]?.roster.length ?? 12} players.
+              Pool = all ranked players sorted by trade value (larger than total slots is fine).
+              Minimums: 1 per PG/SG/SF/PF/C per team first; remaining spots filled in snake order.
+            </p>
+            <details className="text-sm">
+              <summary className="cursor-pointer text-orange-400 hover:text-orange-300">
+                View team rosters
+              </summary>
+              <ul className="mt-3 space-y-3 max-h-80 overflow-y-auto text-gray-300">
+                {draftSimTeams.map((t) => (
+                  <li key={t.id} className="border-b border-gray-700/80 pb-2 last:border-0">
+                    <span className="font-medium text-white">Team {t.id + 1}</span>
+                    <span className="text-gray-500 text-xs ml-2">
+                      ({t.roster.length} players)
+                    </span>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Positions:{" "}
+                      {Object.entries(t.position_counts)
+                        .map(([k, v]) => `${k}:${v}`)
+                        .join(" · ") || "—"}
+                    </div>
+                    <div className="text-xs mt-1 leading-relaxed">
+                      {t.roster.map((p) => p.name).join(", ")}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">

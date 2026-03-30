@@ -104,3 +104,47 @@ export async function fetchTradeAnalysis(
   }
   return data;
 }
+
+export type DraftSimulateTeam = {
+  id: number;
+  roster: {
+    player_id: string;
+    name: string;
+    eligible_positions: string[];
+    value: number;
+  }[];
+  position_counts: Record<string, number>;
+};
+
+export async function fetchDraftSimulate(body: {
+  num_teams: number;
+  roster_size?: number;
+  requirements: Record<string, number>;
+  players: {
+    player_id: string;
+    name: string;
+    eligible_positions: string[];
+    value: number;
+  }[];
+}): Promise<{ teams: DraftSimulateTeam[] }> {
+  const res = await fetch(`${API_BASE}/draft/simulate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      roster_size: 12,
+      ...body,
+    }),
+  });
+  const data: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail =
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof (data as { detail: unknown }).detail === "string"
+        ? (data as { detail: string }).detail
+        : `Draft simulation failed (${res.status})`;
+    throw new Error(detail);
+  }
+  return data as { teams: DraftSimulateTeam[] };
+}
