@@ -116,6 +116,32 @@ export type DraftSimulateTeam = {
   position_counts: Record<string, number>;
 };
 
+/** Per-category league distribution (team totals / weighted %); from benchmark engine. */
+export type CategoryStatBenchmark = {
+  average: number;
+  median: number;
+  q1: number;
+  q3: number;
+  min: number;
+  max: number;
+  /** One value per simulated team (ascending); used for percentile comparisons. */
+  sorted_values: number[];
+};
+
+export type LeagueBenchmarksApi = {
+  overall: {
+    team_scores: { team_id: number; score: number }[];
+    sorted_scores: number[];
+    average_score: number;
+    median_score: number;
+    min_score: number;
+    max_score: number;
+    top_quartile_score: number;
+    bottom_quartile_score: number;
+  };
+  categories: Record<string, CategoryStatBenchmark>;
+};
+
 export async function fetchDraftSimulate(body: {
   num_teams: number;
   roster_size?: number;
@@ -126,7 +152,7 @@ export async function fetchDraftSimulate(body: {
     eligible_positions: string[];
     value: number;
   }[];
-}): Promise<{ teams: DraftSimulateTeam[] }> {
+}): Promise<{ teams: DraftSimulateTeam[]; benchmarks: LeagueBenchmarksApi }> {
   const res = await fetch(`${API_BASE}/draft/simulate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -146,5 +172,181 @@ export async function fetchDraftSimulate(body: {
         : `Draft simulation failed (${res.status})`;
     throw new Error(detail);
   }
-  return data as { teams: DraftSimulateTeam[] };
+  return data as { teams: DraftSimulateTeam[]; benchmarks: LeagueBenchmarksApi };
+}
+
+/** Season-style totals / volume for ``/team/analyze`` roster_players (matches draft ``proj_*``). */
+export type TeamAnalyzeRosterPlayer = {
+  player_id: string;
+  name: string;
+  eligible_positions: string[];
+  value: number;
+  proj_pts?: number;
+  proj_reb?: number;
+  proj_ast?: number;
+  proj_threes?: number;
+  proj_stl?: number;
+  proj_blk?: number;
+  proj_tov?: number;
+  proj_fgm?: number;
+  proj_fga?: number;
+  proj_ftm?: number;
+  proj_fta?: number;
+};
+
+export type TradeTargetsCandidate = {
+  player_id: string;
+  name: string;
+  team: string;
+  position: string;
+  trade_value: number;
+  fit_score: number;
+  per_game: Record<string, number>;
+};
+
+export type TradeTargetsBundle = {
+  needs: string[];
+  avoid_hurting: string[];
+  trade_assets: string[];
+  candidates: TradeTargetsCandidate[];
+  curated_for_llm: TradeTargetsCandidate[];
+  summary_for_prompt: {
+    user_team_weaknesses: string[];
+    user_team_strengths: string[];
+    tradeable_players: string[];
+    candidate_trade_targets: string[];
+    note?: string;
+  };
+};
+
+export type TeamAnalysisResponse = {
+  profile: Record<string, unknown>;
+  league_comparison: {
+    overall: {
+      team_score: number;
+      percentile_estimate: number;
+      delta_vs_average: number;
+      delta_vs_median: number;
+      rank_bucket: string;
+    };
+    categories: Record<
+      string,
+      {
+        value: number;
+        delta_vs_median: number;
+        delta_vs_average: number;
+        percentile_estimate: number;
+        rank_bucket: string;
+        lower_is_better: boolean;
+      }
+    >;
+    strongest_categories: string[];
+    weakest_categories: string[];
+  };
+  flags: string[];
+  candidate_actions: string[];
+  trade_targets: TradeTargetsBundle | null;
+};
+
+export async function fetchTeamAnalyze(body: {
+  benchmarks: LeagueBenchmarksApi;
+  roster_players: TeamAnalyzeRosterPlayer[];
+  roster_slots: { slot_label: string; player_id: string | null }[];
+  draft_pool_values: number[];
+  total_league_slots: number;
+  /** When set, backend returns deterministic trade_targets (needs, candidates, …). */
+  player_values?: Record<string, number>;
+}): Promise<TeamAnalysisResponse> {
+  const res = await fetch(`${API_BASE}/team/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail =
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof (data as { detail: unknown }).detail === "string"
+        ? (data as { detail: string }).detail
+        : `Team analysis failed (${res.status})`;
+    throw new Error(detail);
+  }
+  return data as TeamAnalysisResponse;
+}
+
+/** LLM layer on top of deterministic ``fetchTeamAnalyze`` output. */
+export type TeamIdentityLLMResponse = {
+  team_identity: string;
+  narrative_summary: string;
+  strengths: string[];
+  weaknesses: string[];
+  top_improvements: string[];
+  recommended_move_types: string[];
+  insights: string[];
+};
+
+export async function fetchTeamIdentityLLM(
+  teamAnalysis: TeamAnalysisResponse
+): Promise<TeamIdentityLLMResponse> {
+  const res = await fetch(`${API_BASE}/llm/openai/team-identity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ team_analysis: teamAnalysis }),
+  });
+  const data: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail =
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof (data as { detail: unknown }).detail === "string"
+        ? (data as { detail: string }).detail
+        : `Team identity analysis failed (${res.status})`;
+    throw new Error(detail);
+  }
+  return data as TeamIdentityLLMResponse;
+}
+
+export type TradeTargetsLLMResponse = {
+  team_identity: string;
+  narrative_summary: string;
+  strengths: string[];
+  weaknesses: string[];
+  top_improvements: string[];
+  recommended_move_types: string[];
+  insights: string[];
+  top_three_targets: Array<{
+    name: string;
+    rank: number;
+    why_fit: string;
+    trade_construction: string;
+  }>;
+  /** Trade-focused paragraph; complements narrative_summary. */
+  summary: string;
+  constraint_acknowledgment: string;
+};
+
+/** Full ``POST /team/analyze`` payload (includes ``trade_targets`` when sent). */
+export async function fetchTradeTargetsLLM(
+  teamAnalysis: TeamAnalysisResponse
+): Promise<TradeTargetsLLMResponse> {
+  const res = await fetch(`${API_BASE}/llm/openai/trade-targets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ team_analysis: teamAnalysis }),
+  });
+  const data: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail =
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof (data as { detail: unknown }).detail === "string"
+        ? (data as { detail: string }).detail
+        : `Trade targets LLM failed (${res.status})`;
+    throw new Error(detail);
+  }
+  return data as TradeTargetsLLMResponse;
 }

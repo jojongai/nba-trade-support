@@ -9,14 +9,31 @@ import {
   fetchTeams,
   fetchTradeAnalysis,
   fetchDraftSimulate,
+  fetchTeamAnalyze,
+  fetchTradeTargetsLLM,
   type DraftSimulateTeam,
+  type LeagueBenchmarksApi,
   type RankingRow,
   type Team,
+  type TeamAnalysisResponse,
+  type TradeTargetsLLMResponse,
 } from "@/lib/api";
 import {
   buildDraftPlayerPoolFromRankings,
   DEFAULT_DRAFT_POSITION_MINS,
 } from "@/lib/draft-sim";
+import {
+  benchmarksHaveCategoryDistributions,
+  buildDraftSimulationFingerprint,
+  clearDraftSimCache,
+  readDraftSimCache,
+  writeDraftSimCache,
+} from "@/lib/draft-sim-cache";
+import {
+  buildPlayerTradeValuesMap,
+  buildRosterPlayersForTeamAnalysis,
+} from "@/lib/team-analysis";
+import { saveTeamAnalysisResultsPayload } from "@/lib/team-analysis-storage";
 import { buildTradeContextForLLM } from "@/lib/trade-context";
 import { isLLMTradeResponse, type LLMTradeResponse } from "@/lib/llm-response";
 import { computeTradeValues } from "@/lib/trade-value";
@@ -176,6 +193,18 @@ export default function TradeAnalyzerPage() {
   const [draftSimLoading, setDraftSimLoading] = useState(false);
   const [draftSimError, setDraftSimError] = useState<string | null>(null);
   const [draftSimTeams, setDraftSimTeams] = useState<DraftSimulateTeam[] | null>(null);
+  const [draftSimBenchmarks, setDraftSimBenchmarks] = useState<LeagueBenchmarksApi | null>(
+    null
+  );
+  const [draftSimFromCache, setDraftSimFromCache] = useState(false);
+  const [teamAnalysis, setTeamAnalysis] = useState<TeamAnalysisResponse | null>(null);
+  const [teamAnalysisLoading, setTeamAnalysisLoading] = useState(false);
+  const [teamAnalysisError, setTeamAnalysisError] = useState<string | null>(null);
+  const [tradeTargetsLlm, setTradeTargetsLlm] = useState<TradeTargetsLLMResponse | null>(
+    null
+  );
+  const [tradeTargetsLlmLoading, setTradeTargetsLlmLoading] = useState(false);
+  const [tradeTargetsLlmError, setTradeTargetsLlmError] = useState<string | null>(null);
   const hasHydratedRef = useRef(false);
   const skipFirstPersistRef = useRef(true);
   const tradeSummaryRef = useRef<HTMLDivElement>(null);
@@ -318,7 +347,6 @@ export default function TradeAnalyzerPage() {
   );
 
   const handleContinueAnalyzeTeam = async () => {
-    setShowLeagueSettingsConfirmModal(false);
     setDraftSimError(null);
     setDraftSimLoading(true);
     try {
@@ -337,13 +365,36 @@ export default function TradeAnalyzerPage() {
         );
         return;
       }
-      const { teams } = await fetchDraftSimulate({
+      const fingerprint = buildDraftSimulationFingerprint(
+        numTeams,
+        rosterSize,
+        DEFAULT_DRAFT_POSITION_MINS,
+        players
+      );
+      const cached = readDraftSimCache();
+      if (cached?.fingerprint === fingerprint) {
+        setDraftSimTeams(cached.teams);
+        setDraftSimBenchmarks(cached.benchmarks);
+        setDraftSimFromCache(true);
+        requestAnimationFrame(() => {
+          document.getElementById("draft-simulation")?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        });
+        return;
+      }
+
+      const { teams, benchmarks } = await fetchDraftSimulate({
         num_teams: numTeams,
         roster_size: rosterSize,
         requirements: DEFAULT_DRAFT_POSITION_MINS,
         players,
       });
+      writeDraftSimCache({ fingerprint, teams, benchmarks });
       setDraftSimTeams(teams);
+      setDraftSimBenchmarks(benchmarks);
+      setDraftSimFromCache(false);
       requestAnimationFrame(() => {
         document.getElementById("draft-simulation")?.scrollIntoView({
           behavior: "smooth",
@@ -353,10 +404,94 @@ export default function TradeAnalyzerPage() {
     } catch (e) {
       setDraftSimError(e instanceof Error ? e.message : "Draft simulation failed.");
       setDraftSimTeams(null);
+      setDraftSimBenchmarks(null);
     } finally {
       setDraftSimLoading(false);
+      setShowLeagueSettingsConfirmModal(false);
     }
   };
+
+  const handleTeamVsLeague = async () => {
+    if (!draftSimBenchmarks) {
+      setTeamAnalysisError("Run the draft simulation first.");
+      return;
+    }
+    if (!benchmarksHaveCategoryDistributions(draftSimBenchmarks)) {
+      clearDraftSimCache();
+      setDraftSimTeams(null);
+      setDraftSimBenchmarks(null);
+      setDraftSimFromCache(false);
+      setDraftSimError(
+        "Stale simulation cleared. Run Analyze my Team → Continue once to rebuild benchmarks with full category data."
+      );
+      setTeamAnalysisError(
+        "Benchmarks were missing category distributions (usually an old browser save). Run Analyze my Team → Continue again."
+      );
+      return;
+    }
+    setTeamAnalysisError(null);
+    setTeamAnalysisLoading(true);
+    try {
+      const settings = getLeagueSettings();
+      const numTeams = settings?.teamsInLeague ?? 12;
+      const rosterSize = 12;
+      const pool = buildDraftPlayerPoolFromRankings(rankings, tradeValueMap);
+      const { roster_players, roster_slots } = buildRosterPlayersForTeamAnalysis(
+        rosterSlots,
+        rankings,
+        tradeValueMap
+      );
+      if (roster_players.length === 0) {
+        setTeamAnalysisError("Add players to your roster to compare.");
+        return;
+      }
+      const player_values = buildPlayerTradeValuesMap(rankings, tradeValueMap);
+      const result = await fetchTeamAnalyze({
+        benchmarks: draftSimBenchmarks,
+        roster_players,
+        roster_slots,
+        draft_pool_values: pool.map((p) => p.value),
+        total_league_slots: numTeams * rosterSize,
+        player_values,
+      });
+      setTeamAnalysis(result);
+      setTradeTargetsLlm(null);
+    } catch (e) {
+      setTeamAnalysisError(
+        e instanceof Error ? e.message : "Team analysis failed."
+      );
+      setTeamAnalysis(null);
+    } finally {
+      setTeamAnalysisLoading(false);
+    }
+  };
+
+  const handleTradeTargetsLLM = async () => {
+    if (!teamAnalysis) return;
+    setTradeTargetsLlmError(null);
+    setTradeTargetsLlmLoading(true);
+    try {
+      const out = await fetchTradeTargetsLLM(teamAnalysis);
+      setTradeTargetsLlm(out);
+    } catch (e) {
+      setTradeTargetsLlmError(
+        e instanceof Error ? e.message : "Trade targets LLM failed."
+      );
+      setTradeTargetsLlm(null);
+    } finally {
+      setTradeTargetsLlmLoading(false);
+    }
+  };
+
+  const tradeTargetsBundleFromAnalysis = teamAnalysis?.trade_targets ?? null;
+
+  useEffect(() => {
+    if (!teamAnalysis) return;
+    saveTeamAnalysisResultsPayload({
+      teamAnalysis,
+      llm: tradeTargetsLlm,
+    });
+  }, [teamAnalysis, tradeTargetsLlm]);
 
   const allPlayers = useMemo(
     () => rankings.map((row) => rankingRowToFantasyPlayer(row, tradeValueMap)),
@@ -541,40 +676,63 @@ export default function TradeAnalyzerPage() {
           className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/70"
           role="dialog"
           aria-modal="true"
+          aria-busy={draftSimLoading}
           aria-labelledby="league-settings-confirm-title"
-          onClick={() => setShowLeagueSettingsConfirmModal(false)}
+          onClick={() => {
+            if (!draftSimLoading) setShowLeagueSettingsConfirmModal(false);
+          }}
         >
           <div
             className="w-full max-w-md rounded-xl border border-gray-600 bg-gray-900 p-6 shadow-xl text-center"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2
-              id="league-settings-confirm-title"
-              className="text-lg font-semibold text-white mb-2"
-            >
-              Before we analyze
-            </h2>
-            <p className="text-sm text-gray-400 mb-6 leading-relaxed">
-              Confirm your league settings (format, scoring, roster size, and number of
-              teams) look right. You can update them anytime in League Settings.
-            </p>
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
-              <Link
-                href="/league-settings"
-                className="inline-flex items-center justify-center rounded-lg border border-gray-600 bg-gray-800 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 sm:order-1"
-                onClick={() => setShowLeagueSettingsConfirmModal(false)}
-              >
-                Click here to edit
-              </Link>
-              <button
-                type="button"
-                disabled={draftSimLoading || rankingsLoading}
-                onClick={() => void handleContinueAnalyzeTeam()}
-                className="inline-flex items-center justify-center rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-60 disabled:pointer-events-none sm:order-2"
-              >
-                {draftSimLoading ? "Running simulation…" : "Click here to continue"}
-              </button>
-            </div>
+            {draftSimLoading ? (
+              <div className="flex flex-col items-center justify-center py-10 px-2">
+                <div
+                  className="h-16 w-16 rounded-full border-4 border-black border-t-orange-500 border-r-orange-500/30 animate-spin"
+                  aria-hidden
+                />
+                <h2
+                  id="league-settings-confirm-title"
+                  className="text-lg font-semibold text-white mt-6 mb-1"
+                >
+                  Running simulation…
+                </h2>
+                <p className="text-sm text-gray-400">
+                  Building synthetic league benchmarks from your player pool.
+                </p>
+              </div>
+            ) : (
+              <>
+                <h2
+                  id="league-settings-confirm-title"
+                  className="text-lg font-semibold text-white mb-2"
+                >
+                  Before we analyze
+                </h2>
+                <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+                  Confirm your league settings (format, scoring, roster size, and number of
+                  teams) look right. You can update them anytime in League Settings.
+                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
+                  <Link
+                    href="/league-settings"
+                    className="inline-flex items-center justify-center rounded-lg border border-gray-600 bg-gray-800 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 sm:order-1"
+                    onClick={() => setShowLeagueSettingsConfirmModal(false)}
+                  >
+                    Click here to edit
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={rankingsLoading}
+                    onClick={() => void handleContinueAnalyzeTeam()}
+                    className="inline-flex items-center justify-center rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-60 disabled:pointer-events-none sm:order-2"
+                  >
+                    Click here to continue
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -619,7 +777,195 @@ export default function TradeAnalyzerPage() {
               {draftSimTeams.length} teams × {draftSimTeams[0]?.roster.length ?? 12} players.
               Pool = all ranked players sorted by trade value (larger than total slots is fine).
               Minimums: 1 per PG/SG/SF/PF/C per team first; remaining spots filled in snake order.
+              {draftSimFromCache && (
+                <span className="block mt-1 text-gray-500">
+                  Using saved simulation (same league size and player pool as last run).
+                </span>
+              )}
             </p>
+            {draftSimBenchmarks && (
+              <div className="text-sm text-gray-300 mb-3 rounded-lg bg-gray-900/40 border border-gray-600/50 px-3 py-2">
+                <span className="font-medium text-white">League benchmarks</span>
+                <span className="text-gray-500 text-xs ml-2">(value sum + category distributions)</span>
+                <div className="mt-1 text-gray-400">
+                  Overall: avg{" "}
+                  <span className="text-gray-200 tabular-nums">
+                    {draftSimBenchmarks.overall.average_score.toFixed(1)}
+                  </span>
+                  {" · "}
+                  median{" "}
+                  <span className="text-gray-200 tabular-nums">
+                    {draftSimBenchmarks.overall.median_score.toFixed(1)}
+                  </span>
+                  {" · "}
+                  range{" "}
+                  <span className="text-gray-200 tabular-nums">
+                    {draftSimBenchmarks.overall.min_score.toFixed(1)}–
+                    {draftSimBenchmarks.overall.max_score.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 mb-3">
+              <button
+                type="button"
+                disabled={
+                  teamAnalysisLoading ||
+                  rankingsLoading ||
+                  filledCount < rosterSlots.length
+                }
+                onClick={() => void handleTeamVsLeague()}
+                className="inline-flex items-center rounded-lg border border-orange-500/60 bg-orange-500/10 px-3 py-2 text-sm font-medium text-orange-300 hover:bg-orange-500/20 disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {teamAnalysisLoading ? "Analyzing roster…" : "Compare my roster to this league"}
+              </button>
+              {teamAnalysis && (
+                <>
+                  <button
+                    type="button"
+                    disabled={tradeTargetsLlmLoading}
+                    onClick={() => void handleTradeTargetsLLM()}
+                    className="inline-flex items-center rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700 disabled:opacity-50"
+                  >
+                    {tradeTargetsLlmLoading
+                      ? "Generating overview…"
+                      : "LLM: team overview & trade ideas"}
+                  </button>
+                  <Link
+                    href="/team-analysis-results"
+                    className="inline-flex items-center rounded-lg border border-gray-600 bg-gray-900/80 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-800"
+                  >
+                    Team analysis results page
+                  </Link>
+                </>
+              )}
+            </div>
+            {teamAnalysisError && (
+              <p className="text-sm text-red-400 mb-2">{teamAnalysisError}</p>
+            )}
+            {tradeTargetsLlmError && (
+              <p className="text-sm text-red-400 mb-2">{tradeTargetsLlmError}</p>
+            )}
+            {teamAnalysis && (
+              <div className="mb-4 rounded-lg border border-gray-600 bg-gray-900/50 p-3 text-sm text-gray-300 space-y-2">
+                <div>
+                  <span className="text-white font-medium">Your team vs synthetic league</span>
+                  <span className="text-gray-500 ml-2 tabular-nums">
+                    overall percentile{" "}
+                    {teamAnalysis.league_comparison.overall.percentile_estimate.toFixed(0)}%
+                  </span>
+                </div>
+                <ul className="list-disc list-inside text-gray-400 text-xs space-y-0.5">
+                  {teamAnalysis.flags.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+                <div>
+                  <span className="text-gray-500 text-xs uppercase tracking-wide">
+                    Suggested directions
+                  </span>
+                  <ul className="mt-1 text-xs text-gray-400 list-decimal list-inside space-y-0.5">
+                    {teamAnalysis.candidate_actions.map((a) => (
+                      <li key={a}>{a}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+            {tradeTargetsBundleFromAnalysis && (
+              <div className="mb-4 rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-3 text-sm text-gray-300">
+                <p className="text-white font-medium">Trade target candidates (deterministic)</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Needs: {tradeTargetsBundleFromAnalysis.needs.join(", ") || "—"} · Avoid hurting:{" "}
+                  {tradeTargetsBundleFromAnalysis.avoid_hurting.join(", ") || "—"}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Trade chips: {tradeTargetsBundleFromAnalysis.trade_assets.join(", ") || "—"}
+                </p>
+                {tradeTargetsBundleFromAnalysis.summary_for_prompt.note && (
+                  <p className="text-xs text-amber-400 mt-2">
+                    {tradeTargetsBundleFromAnalysis.summary_for_prompt.note}
+                  </p>
+                )}
+                <ul className="mt-2 max-h-40 overflow-y-auto text-xs space-y-1">
+                  {tradeTargetsBundleFromAnalysis.curated_for_llm.slice(0, 12).map((c) => (
+                    <li key={c.player_id}>
+                      <span className="text-gray-200">{c.name}</span>
+                      <span className="text-gray-500 ml-2">
+                        {c.position} {c.team} · fit {c.fit_score.toFixed(2)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {tradeTargetsLlm && (
+              <div className="mb-4 rounded-lg border border-gray-600 bg-gray-900/40 p-3 text-sm space-y-3">
+                <div>
+                  <p className="text-white font-medium">{tradeTargetsLlm.team_identity}</p>
+                  <p className="text-gray-400 mt-2">{tradeTargetsLlm.narrative_summary}</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 text-xs">
+                  <div>
+                    <span className="text-gray-500 uppercase tracking-wide">Strengths</span>
+                    <ul className="text-gray-300 mt-1 space-y-0.5">
+                      {tradeTargetsLlm.strengths.map((t) => (
+                        <li key={t}>• {t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 uppercase tracking-wide">Weaknesses</span>
+                    <ul className="text-gray-300 mt-1 space-y-0.5">
+                      {tradeTargetsLlm.weaknesses.map((t) => (
+                        <li key={t}>• {t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-gray-500 text-xs uppercase tracking-wide">Insights</span>
+                  <ul className="text-gray-300 mt-1 text-xs space-y-0.5 list-disc list-inside">
+                    {tradeTargetsLlm.insights.map((t) => (
+                      <li key={t}>{t}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 text-xs">
+                  <div>
+                    <span className="text-gray-500">Top improvements</span>
+                    <ul className="text-gray-300 mt-1">
+                      {tradeTargetsLlm.top_improvements.map((t) => (
+                        <li key={t}>• {t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Move types</span>
+                    <ul className="text-gray-300 mt-1">
+                      {tradeTargetsLlm.recommended_move_types.map((t) => (
+                        <li key={t}>• {t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <div className="border-t border-gray-700 pt-3">
+                  <p className="text-gray-400 text-sm">{tradeTargetsLlm.summary}</p>
+                  <p className="text-xs text-gray-500 mt-2">{tradeTargetsLlm.constraint_acknowledgment}</p>
+                  {tradeTargetsLlm.top_three_targets.length > 0 && (
+                    <ol className="mt-3 space-y-2 list-decimal list-inside text-gray-300">
+                      {tradeTargetsLlm.top_three_targets.map((t) => (
+                        <li key={`${t.rank}-${t.name}`}>
+                          <span className="font-medium text-white">{t.name}</span>
+                          <p className="text-gray-400 text-xs mt-0.5">{t.why_fit}</p>
+                          <p className="text-gray-500 text-xs mt-0.5">{t.trade_construction}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              </div>
+            )}
             <details className="text-sm">
               <summary className="cursor-pointer text-orange-400 hover:text-orange-300">
                 View team rosters

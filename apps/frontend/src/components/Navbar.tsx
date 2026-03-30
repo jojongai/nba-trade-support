@@ -57,6 +57,16 @@ export function Navbar() {
               Trade Analyzer
             </Link>
             <Link
+              href="/team-analysis-results"
+              className={`px-4 py-2 rounded-lg transition-colors ${
+                isActive("/team-analysis-results")
+                  ? "bg-orange-500/20 text-orange-400"
+                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+              }`}
+            >
+              Team analysis
+            </Link>
+            <Link
               href="/player-rankings"
               className={`px-4 py-2 rounded-lg transition-colors ${
                 isActive("/player-rankings")

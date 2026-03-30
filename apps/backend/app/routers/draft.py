@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from app.services.benchmark_engine import benchmarks_for_api_response, build_league_benchmarks
 from app.services.draft_simulation import (
     DraftInfeasibleError,
     DraftSimulationError,
@@ -58,7 +59,9 @@ class DraftSimulateRequest(BaseModel):
 def draft_simulate(body: DraftSimulateRequest) -> dict[str, Any]:
     """
     Run a deterministic draft: satisfy positional minimums first, then fill
-    remaining spots in snake order with best available players.
+    remaining spots in snake order with best available players. Also returns
+    league benchmarks (overall value + category distributions) derived from the
+    simulated teams.
     """
     players = [
         Player(
@@ -94,4 +97,8 @@ def draft_simulate(body: DraftSimulateRequest) -> dict[str, Any]:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    return {"teams": teams_to_jsonable(teams)}
+    bench = build_league_benchmarks(teams)
+    return {
+        "teams": teams_to_jsonable(teams),
+        "benchmarks": benchmarks_for_api_response(bench),
+    }

@@ -31,7 +31,36 @@ export type DraftPlayerPayload = {
   name: string;
   eligible_positions: string[];
   value: number;
+  /** Season totals / volume from rankings — used for category benchmarks. */
+  proj_pts?: number;
+  proj_reb?: number;
+  proj_ast?: number;
+  proj_threes?: number;
+  proj_stl?: number;
+  proj_blk?: number;
+  proj_tov?: number;
+  proj_fgm?: number;
+  proj_fga?: number;
+  proj_ftm?: number;
+  proj_fta?: number;
 };
+
+/** Map rankings row to backend ``proj_*`` fields (season aggregates when present). */
+export function projectionsFromRankingRow(row: RankingRow): Partial<DraftPlayerPayload> {
+  return {
+    proj_pts: row.PTS,
+    proj_reb: row.REB,
+    proj_ast: row.AST,
+    proj_threes: row.FG3M,
+    proj_stl: row.STL,
+    proj_blk: row.BLK,
+    proj_tov: row.TOV,
+    proj_fgm: row.FGM,
+    proj_fga: row.FGA,
+    proj_ftm: row.FTM,
+    proj_fta: row.FTA,
+  };
+}
 
 /**
  * Build a draft pool from rankings, sorted by trade value (desc).
@@ -56,6 +85,7 @@ export function buildDraftPlayerPoolFromRankings(
       name: row.full_name,
       eligible_positions: eligiblePositionsForDraft(row.position),
       value: val,
+      ...projectionsFromRankingRow(row),
     });
   }
   return out;

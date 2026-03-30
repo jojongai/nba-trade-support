@@ -218,6 +218,32 @@ def build_league_benchmarks(teams: list[Team]) -> FullLeagueBenchmarks:
     }
 
 
+def benchmarks_for_api_response(benches: FullLeagueBenchmarks) -> dict[str, Any]:
+    """
+    JSON-safe league benchmarks for API clients.
+
+    Includes per-category ``sorted_values`` (one float per simulated team) so
+    the client can run percentile comparisons without re-simulating.
+    """
+    cats_out: dict[str, Any] = {}
+    for k, v in benches["categories"].items():
+        # sorted_values is small (one float per simulated team) and needed for
+        # percentile comparisons in team analysis without re-running the draft.
+        cats_out[k] = {
+            "average": v["average"],
+            "median": v["median"],
+            "q1": v["q1"],
+            "q3": v["q3"],
+            "min": v["min"],
+            "max": v["max"],
+            "sorted_values": v["sorted_values"],
+        }
+    return {
+        "overall": dict(benches["overall"]),
+        "categories": cats_out,
+    }
+
+
 class TeamComparisonDict(TypedDict):
     """Output from :func:`compare_team_to_benchmarks`."""
 
