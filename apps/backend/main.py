@@ -2,6 +2,7 @@
 NBA Trade Support API — FastAPI app entrypoint.
 Uses nba_api for teams, players, and player career stats (static data cached to JSON).
 """
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -22,9 +23,20 @@ app = FastAPI(
     version="0.1.0",
 )
 
+def _cors_allow_origins() -> list[str]:
+    """Comma-separated URLs (Vercel preview + production + local)."""
+    raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000").strip()
+    out = [x.strip() for x in raw.split(",") if x.strip()]
+    return out if out else ["http://localhost:3000"]
+
+
+# Regex allows any *.vercel.app preview URL without listing each deployment in CORS_ORIGINS.
+_cors_regex = os.environ.get("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app").strip()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_cors_allow_origins(),
+    allow_origin_regex=_cors_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
