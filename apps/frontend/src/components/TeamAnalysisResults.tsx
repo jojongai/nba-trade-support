@@ -26,6 +26,7 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  Info,
 } from "lucide-react";
 import type { TeamAnalysisResponse, TradeTargetsLLMResponse } from "@/lib/api";
 
@@ -40,6 +41,11 @@ const STAT_CATEGORIES = [
   "FG%",
   "FT%",
 ] as const;
+
+/** Round for chart data, tooltips, and axis labels. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 const RADAR_LABEL: Record<string, string> = {
   PTS: "PTS",
@@ -84,8 +90,17 @@ export interface TeamAnalysisResultsProps {
   llm: TradeTargetsLLMResponse | null;
 }
 
+const RADAR_CHART_HELP =
+  "Each axis is a stat category. The orange area is your team’s percentile (0–100) in that category; the gray area is the synthetic league median (50). Distance from the center is percentile: farther out means stronger vs the league for that category.";
+
+const BAR_CHART_HELP =
+  "Each bar is your percentile minus 50 for that category. Positive means above the synthetic league median; negative means below. Zero is league-average for that stat.";
+
 export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsProps) {
   const [showDetailedInsights, setShowDetailedInsights] = useState(false);
+  const [showRadarChartInfo, setShowRadarChartInfo] = useState(false);
+  const [showBarChartInfo, setShowBarChartInfo] = useState(false);
+  const [showPlayersToTarget, setShowPlayersToTarget] = useState(true);
 
   const { profile, league_comparison: lc } = teamAnalysis;
   const overallPct = lc.overall.percentile_estimate;
@@ -98,18 +113,19 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
     const pct = cat ? cat.percentile_estimate : 50;
     return {
       category: RADAR_LABEL[key] ?? key,
-      team: pct,
-      leagueMedian: 50,
+      team: round2(pct),
+      leagueMedian: round2(50),
     };
   });
 
   const barData = STAT_CATEGORIES.map((key) => {
     const cat = lc.categories[key];
     const dev = cat ? cat.percentile_estimate - 50 : 0;
+    const value = round2(dev);
     return {
       name: RADAR_LABEL[key] ?? key,
-      value: dev,
-      color: dev >= 0 ? "#10B981" : "#EF4444",
+      value,
+      color: value >= 0 ? "#10B981" : "#EF4444",
     };
   });
 
@@ -206,9 +222,25 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
-          <h2 className="text-lg font-semibold text-white mb-4">
-            Category percentiles vs league median
-          </h2>
+          <div className="flex items-start gap-2 mb-2">
+            <h2 className="text-lg font-semibold text-white flex-1 leading-snug">
+              Category percentiles vs league median
+            </h2>
+            <button
+              type="button"
+              onClick={() => setShowRadarChartInfo((v) => !v)}
+              className="shrink-0 rounded-md p-1.5 text-gray-400 hover:text-white hover:bg-gray-700/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              aria-expanded={showRadarChartInfo}
+              aria-label="What this radar chart shows"
+            >
+              <Info className="w-4 h-4" strokeWidth={2} />
+            </button>
+          </div>
+          {showRadarChartInfo && (
+            <p className="text-sm text-gray-300 mb-3 rounded-md border border-gray-600/60 bg-gray-900/40 px-3 py-2">
+              {RADAR_CHART_HELP}
+            </p>
+          )}
           <p className="text-xs text-gray-500 mb-2">
             Radar: your percentile (0–100) vs 50 (synthetic league median team).
           </p>
@@ -216,7 +248,22 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
             <RadarChart data={radarData}>
               <PolarGrid stroke="#374151" />
               <PolarAngleAxis dataKey="category" tick={{ fill: "#9CA3AF", fontSize: 11 }} />
-              <PolarRadiusAxis domain={[0, 100]} tick={{ fill: "#9CA3AF", fontSize: 10 }} />
+              <PolarRadiusAxis
+                domain={[0, 100]}
+                tick={{ fill: "#9CA3AF", fontSize: 10 }}
+                tickFormatter={(v) => round2(Number(v)).toFixed(2)}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#1F2937",
+                  border: "1px solid #374151",
+                  borderRadius: "8px",
+                }}
+                labelStyle={{ color: "#fff" }}
+                formatter={(value: number | string) =>
+                  round2(typeof value === "number" ? value : Number(value)).toFixed(2)
+                }
+              />
               <Radar
                 name="League median"
                 dataKey="leagueMedian"
@@ -237,14 +284,34 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
         </div>
 
         <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
-          <h2 className="text-lg font-semibold text-white mb-4">
-            Category tilt (percentile − 50)
-          </h2>
+          <div className="flex items-start gap-2 mb-4">
+            <h2 className="text-lg font-semibold text-white flex-1 leading-snug">
+              Category tilt (percentile − 50)
+            </h2>
+            <button
+              type="button"
+              onClick={() => setShowBarChartInfo((v) => !v)}
+              className="shrink-0 rounded-md p-1.5 text-gray-400 hover:text-white hover:bg-gray-700/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              aria-expanded={showBarChartInfo}
+              aria-label="What this bar chart shows"
+            >
+              <Info className="w-4 h-4" strokeWidth={2} />
+            </button>
+          </div>
+          {showBarChartInfo && (
+            <p className="text-sm text-gray-300 mb-3 rounded-md border border-gray-600/60 bg-gray-900/40 px-3 py-2">
+              {BAR_CHART_HELP}
+            </p>
+          )}
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={barData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="name" tick={{ fill: "#9CA3AF", fontSize: 11 }} />
-              <YAxis tick={{ fill: "#9CA3AF" }} domain={[-50, 50]} />
+              <YAxis
+                tick={{ fill: "#9CA3AF" }}
+                domain={[-50, 50]}
+                tickFormatter={(v) => round2(Number(v)).toFixed(2)}
+              />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "#1F2937",
@@ -252,6 +319,9 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
                   borderRadius: "8px",
                 }}
                 labelStyle={{ color: "#fff" }}
+                formatter={(value: number | string) =>
+                  round2(typeof value === "number" ? value : Number(value)).toFixed(2)
+                }
               />
               <Bar dataKey="value" radius={[8, 8, 0, 0]}>
                 {barData.map((entry, index) => (
@@ -389,30 +459,47 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
 
       {!llm?.top_three_targets?.length &&
         (teamAnalysis.trade_targets?.candidates?.length ?? 0) > 0 && (
-          <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-4 text-sm text-gray-300">
-            <h2 className="text-white font-medium mb-2 flex items-center gap-2">
-              <Target className="w-4 h-4 text-emerald-400 shrink-0" />
-              Players to target
-            </h2>
-            <p className="text-gray-400 text-xs mb-3">
-              {llm
-                ? "LLM did not return ranked targets; showing deterministic candidates instead."
-                : "Ranked by fit for your build (deterministic). If the LLM step failed (e.g. missing API key), you still get these picks."}
-            </p>
-            <ol className="list-decimal list-outside pl-5 space-y-3 [&>li]:marker:text-emerald-400/90">
-              {(teamAnalysis.trade_targets?.candidates ?? []).slice(0, 12).map((c) => (
-                <li key={c.player_id} className="pl-1 leading-relaxed">
-                  <span className="text-white font-medium">{c.name}</span>
-                  <span className="text-gray-500 text-xs ml-2">
-                    {c.position}
-                    {c.team ? ` · ${c.team}` : ""}
+          <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 text-sm text-gray-300">
+            <button
+              type="button"
+              onClick={() => setShowPlayersToTarget((v) => !v)}
+              className="w-full p-4 flex items-center justify-between text-left gap-3"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 bg-emerald-600/30 rounded-lg flex items-center justify-center shrink-0">
+                  <Target className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <span className="font-medium text-white block">Players to target</span>
+                  <span className="text-xs text-gray-500">
+                    {(teamAnalysis.trade_targets?.candidates ?? []).length} ranked candidates
                   </span>
-                  <p className="text-gray-400 text-xs mt-0.5">
-                    Fit {c.fit_score.toFixed(2)} · value {c.trade_value.toFixed(1)}
-                  </p>
-                </li>
-              ))}
-            </ol>
+                </div>
+              </div>
+              {showPlayersToTarget ? (
+                <ChevronUp className="w-5 h-5 text-gray-400 shrink-0" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-gray-400 shrink-0" />
+              )}
+            </button>
+            {showPlayersToTarget && (
+              <div className="px-4 pb-4">
+                <ol className="list-decimal list-outside pl-5 space-y-3 [&>li]:marker:text-emerald-400/90">
+                  {(teamAnalysis.trade_targets?.candidates ?? []).slice(0, 12).map((c) => (
+                    <li key={c.player_id} className="pl-1 leading-relaxed">
+                      <span className="text-white font-medium">{c.name}</span>
+                      <span className="text-gray-500 text-xs ml-2">
+                        {c.position}
+                        {c.team ? ` · ${c.team}` : ""}
+                      </span>
+                      <p className="text-gray-400 text-xs mt-0.5">
+                        Fit {c.fit_score.toFixed(2)} · value {c.trade_value.toFixed(1)}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
         )}
 
