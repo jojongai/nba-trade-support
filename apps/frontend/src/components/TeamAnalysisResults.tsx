@@ -28,7 +28,11 @@ import {
   ChevronUp,
   Info,
 } from "lucide-react";
-import type { TeamAnalysisResponse, TradeTargetsLLMResponse } from "@/lib/api";
+import {
+  type TeamAnalysisResponse,
+  type TradeTargetsLLMResponse,
+  normalizeTopThreeTargets,
+} from "@/lib/api";
 
 const STAT_CATEGORIES = [
   "PTS",
@@ -155,6 +159,8 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
 
   const llmInsightCards: Array<{ type: "strength" | "weakness" | "warning"; text: string }> =
     [];
+
+  const topTargets = llm ? normalizeTopThreeTargets(llm.top_three_targets) : [];
 
   if (llm) {
     for (const t of llm.strengths) {
@@ -440,16 +446,16 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
         </ul>
       </div>
 
-      {llm && llm.top_three_targets.length > 0 && (
+      {llm && topTargets.length > 0 && (
         <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-4 text-sm text-gray-300">
           <h2 className="text-white font-medium mb-2">Top trade targets (LLM)</h2>
           <p className="text-gray-400 mb-3">{llm.summary}</p>
           <ol className="list-decimal list-outside pl-5 space-y-2 [&>li]:marker:text-emerald-400/90">
-            {llm.top_three_targets.map((t) => (
+            {topTargets.map((t) => (
               <li key={`${t.rank}-${t.name}`} className="pl-1 leading-relaxed">
                 <span className="text-white font-medium">{t.name}</span>
-                <p className="text-gray-400 text-xs mt-0.5">{t.why_fit}</p>
-                <p className="text-gray-500 text-xs mt-0.5">{t.trade_construction}</p>
+                <span className="block text-gray-400 text-xs mt-0.5">{t.why_fit}</span>
+                <span className="block text-gray-500 text-xs mt-0.5">{t.trade_construction}</span>
               </li>
             ))}
           </ol>
@@ -457,7 +463,7 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
         </div>
       )}
 
-      {!llm?.top_three_targets?.length &&
+      {topTargets.length === 0 &&
         (teamAnalysis.trade_targets?.candidates?.length ?? 0) > 0 && (
           <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 text-sm text-gray-300">
             <button
@@ -492,9 +498,9 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
                         {c.position}
                         {c.team ? ` · ${c.team}` : ""}
                       </span>
-                      <p className="text-gray-400 text-xs mt-0.5">
+                      <span className="block text-gray-400 text-xs mt-0.5">
                         Fit {c.fit_score.toFixed(2)} · value {c.trade_value.toFixed(1)}
-                      </p>
+                      </span>
                     </li>
                   ))}
                 </ol>
@@ -503,7 +509,7 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
           </div>
         )}
 
-      {!llm?.top_three_targets?.length &&
+      {topTargets.length === 0 &&
         teamAnalysis.trade_targets &&
         teamAnalysis.trade_targets.candidates.length === 0 &&
         teamAnalysis.trade_targets.summary_for_prompt?.note && (

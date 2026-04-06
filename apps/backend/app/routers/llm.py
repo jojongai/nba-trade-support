@@ -16,6 +16,27 @@ from app.services.openai_service import (
 router = APIRouter(prefix="/llm", tags=["llm"])
 
 
+def _normalize_top_three_targets_dict(data: dict) -> None:
+    """Cap at 3 named targets; drop empties; renumber ranks (model sometimes returns extra rows)."""
+    raw = data.get("top_three_targets")
+    if not isinstance(raw, list):
+        data["top_three_targets"] = []
+        return
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        out.append(item)
+    out.sort(key=lambda x: int(float(x.get("rank") or 0)))
+    trimmed = out[:3]
+    for i, row in enumerate(trimmed):
+        row["rank"] = i + 1
+    data["top_three_targets"] = trimmed
+
+
 class ChatRequest(BaseModel):
     prompt: str = ""
 
@@ -67,7 +88,9 @@ def openai_trade_targets(body: TradeTargetsLLMRequest) -> dict:
     try:
         ctx_str = json.dumps(body.team_analysis)
         text = generate_trade_targets_llm_json(ctx_str)
-        return json.loads(text)
+        data = json.loads(text)
+        _normalize_top_three_targets_dict(data)
+        return data
     except ValueError as e:
         raise HTTPException(status_code=502, detail=f"LLM error: {e!s}") from e
     except json.JSONDecodeError as e:

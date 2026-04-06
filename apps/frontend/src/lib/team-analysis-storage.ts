@@ -1,4 +1,8 @@
-import type { TeamAnalysisResponse, TradeTargetsLLMResponse } from "@/lib/api";
+import {
+  type TeamAnalysisResponse,
+  type TradeTargetsLLMResponse,
+  normalizeTopThreeTargets,
+} from "@/lib/api";
 
 export const TEAM_ANALYSIS_RESULTS_STORAGE_KEY = "nba-trade-support/team-analysis-results";
 
@@ -25,9 +29,16 @@ export function loadTeamAnalysisResultsPayload(): TeamAnalysisResultsPayload | n
     if (!parsed || typeof parsed !== "object") return null;
     const o = parsed as Partial<TeamAnalysisResultsPayload>;
     if (!o.teamAnalysis || typeof o.teamAnalysis !== "object") return null;
+    const llmRaw = o.llm ?? null;
     return {
       teamAnalysis: o.teamAnalysis as TeamAnalysisResponse,
-      llm: o.llm ?? null,
+      llm:
+        llmRaw && typeof llmRaw === "object"
+          ? {
+              ...llmRaw,
+              top_three_targets: normalizeTopThreeTargets(llmRaw.top_three_targets),
+            }
+          : null,
     };
   } catch {
     return null;

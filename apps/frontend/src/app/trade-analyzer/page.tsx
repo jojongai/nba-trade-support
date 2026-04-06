@@ -12,6 +12,7 @@ import {
   fetchDraftSimulate,
   fetchTeamAnalyze,
   fetchTradeTargetsLLM,
+  normalizeTopThreeTargets,
   type DraftSimulateTeam,
   type LeagueBenchmarksApi,
   type RankingRow,
@@ -462,6 +463,12 @@ export default function TradeAnalyzerPage() {
 
   const tradeTargetsBundleFromAnalysis = teamAnalysis?.trade_targets ?? null;
 
+  const tradeTargetsTopThree = useMemo(
+    () =>
+      tradeTargetsLlm ? normalizeTopThreeTargets(tradeTargetsLlm.top_three_targets) : [],
+    [tradeTargetsLlm]
+  );
+
   useEffect(() => {
     if (!teamAnalysis) return;
     saveTeamAnalysisResultsPayload({
@@ -907,13 +914,15 @@ export default function TradeAnalyzerPage() {
                 <div className="border-t border-gray-700 pt-3">
                   <p className="text-gray-400 text-sm">{tradeTargetsLlm.summary}</p>
                   <p className="text-xs text-gray-500 mt-2">{tradeTargetsLlm.constraint_acknowledgment}</p>
-                  {tradeTargetsLlm.top_three_targets.length > 0 && (
-                    <ol className="mt-3 space-y-2 list-decimal list-inside text-gray-300">
-                      {tradeTargetsLlm.top_three_targets.map((t) => (
-                        <li key={`${t.rank}-${t.name}`}>
+                  {tradeTargetsTopThree.length > 0 && (
+                    <ol className="mt-3 space-y-2 list-decimal list-outside pl-5 text-gray-300 [&>li]:marker:text-emerald-400/90">
+                      {tradeTargetsTopThree.map((t) => (
+                        <li key={`${t.rank}-${t.name}`} className="pl-1 leading-relaxed">
                           <span className="font-medium text-white">{t.name}</span>
-                          <p className="text-gray-400 text-xs mt-0.5">{t.why_fit}</p>
-                          <p className="text-gray-500 text-xs mt-0.5">{t.trade_construction}</p>
+                          <span className="block text-gray-400 text-xs mt-0.5">{t.why_fit}</span>
+                          <span className="block text-gray-500 text-xs mt-0.5">
+                            {t.trade_construction}
+                          </span>
                         </li>
                       ))}
                     </ol>

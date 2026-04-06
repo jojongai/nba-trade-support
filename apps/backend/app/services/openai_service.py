@@ -147,7 +147,7 @@ Team overview (from profile, league_comparison, flags, candidate_actions, and tr
 - insights: array of strings (3-6)
 
 Trade targets (only when input includes trade_targets with curated_for_llm / candidates):
-- top_three_targets: array of up to 3 objects (fewer if fewer candidates; use [] if trade_targets is null or there are no valid candidates), each object with:
+- top_three_targets: array of at most 3 objects (never more than three; never include empty objects or placeholder rows; fewer if fewer candidates; use [] if trade_targets is null or there are no valid candidates), each object with:
   - name: string (must exactly match a name from curated_for_llm in the input when present)
   - rank: integer starting at 1
   - why_fit: string

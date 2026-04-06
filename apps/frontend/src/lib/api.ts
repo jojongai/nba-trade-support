@@ -328,6 +328,23 @@ export type TradeTargetsLLMResponse = {
   constraint_acknowledgment: string;
 };
 
+export type TradeTargetPick = TradeTargetsLLMResponse["top_three_targets"][number];
+
+/** Keep at most three named targets; drop empties; fix bad model output (extra rows). */
+export function normalizeTopThreeTargets(
+  arr: TradeTargetsLLMResponse["top_three_targets"] | undefined | null
+): TradeTargetPick[] {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter(
+      (t): t is TradeTargetPick =>
+        Boolean(t && typeof t.name === "string" && t.name.trim().length > 0)
+    )
+    .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0))
+    .slice(0, 3)
+    .map((t, i) => ({ ...t, rank: i + 1 }));
+}
+
 /** Full ``POST /team/analyze`` payload (includes ``trade_targets`` when sent). */
 export async function fetchTradeTargetsLLM(
   teamAnalysis: TeamAnalysisResponse
@@ -348,5 +365,9 @@ export async function fetchTradeTargetsLLM(
         : `Trade targets LLM failed (${res.status})`;
     throw new Error(detail);
   }
-  return data as TradeTargetsLLMResponse;
+  const body = data as TradeTargetsLLMResponse;
+  return {
+    ...body,
+    top_three_targets: normalizeTopThreeTargets(body.top_three_targets),
+  };
 }
