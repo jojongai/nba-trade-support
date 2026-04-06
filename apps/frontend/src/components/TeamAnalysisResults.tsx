@@ -64,19 +64,6 @@ function getProfileTotals(profile: TeamAnalysisResponse["profile"]): Record<stri
   return out;
 }
 
-function getPositionalDepth(
-  profile: TeamAnalysisResponse["profile"]
-): Record<string, number> {
-  const raw = profile.positional_depth;
-  if (!raw || typeof raw !== "object") return {};
-  const out: Record<string, number> = {};
-  for (const pos of ["PG", "SG", "SF", "PF", "C"] as const) {
-    const block = (raw as Record<string, { count?: number }>)[pos];
-    if (block && typeof block.count === "number") out[pos] = block.count;
-  }
-  return out;
-}
-
 function getRatingColor(percentile: number) {
   if (percentile >= 70) return "text-green-400";
   if (percentile >= 50) return "text-yellow-400";
@@ -103,7 +90,6 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
   const { profile, league_comparison: lc } = teamAnalysis;
   const overallPct = lc.overall.percentile_estimate;
   const totals = getProfileTotals(profile);
-  const positionCounts = getPositionalDepth(profile);
   const overallScore =
     typeof profile.overall_score === "number" ? profile.overall_score : lc.overall.team_score;
 
@@ -347,59 +333,38 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
         )}
       </div>
 
-      <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
-        <h2 className="text-lg font-semibold text-white mb-4">Position distribution</h2>
-        <div className="grid grid-cols-5 gap-4">
-          {["PG", "SG", "SF", "PF", "C"].map((pos) => (
-            <div key={pos} className="text-center">
-              <div className="text-3xl font-bold text-orange-400 tabular-nums">
-                {positionCounts[pos] ?? 0}
-              </div>
-              <div className="text-sm text-gray-400 mt-1">{pos}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div className="bg-blue-500/10 rounded-lg p-6 border border-blue-500/30">
         <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
           <Target className="w-5 h-5 text-blue-400" />
           Recommendations
         </h2>
-        <ul className="space-y-2 text-sm text-gray-300">
+        <ul className="space-y-2 text-sm text-gray-300 list-disc list-outside pl-5 [&>li]:marker:text-blue-400">
           {llm?.top_improvements.map((t, i) => (
-            <li key={`imp-${i}-${t}`} className="flex items-start gap-2">
-              <span className="text-blue-400 mt-1">•</span>
-              <span>{t}</span>
+            <li key={`imp-${i}-${t}`} className="leading-relaxed ps-1">
+              {t}
             </li>
           ))}
           {llm?.recommended_move_types.map((t, i) => (
-            <li key={`move-${i}-${t}`} className="flex items-start gap-2">
-              <span className="text-blue-400 mt-1">•</span>
-              <span>{t}</span>
+            <li key={`move-${i}-${t}`} className="leading-relaxed ps-1">
+              {t}
             </li>
           ))}
           {teamAnalysis.candidate_actions.map((t) => (
-            <li key={t} className="flex items-start gap-2">
-              <span className="text-gray-500 mt-1">•</span>
-              <span>{t}</span>
+            <li key={t} className="leading-relaxed ps-1 marker:text-gray-500">
+              {t}
             </li>
           ))}
           {teamAnalysis.trade_targets?.needs?.length ? (
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-400 mt-1">•</span>
-              <span>
-                <span className="text-gray-500">Needs: </span>
-                {teamAnalysis.trade_targets.needs.join(", ")}
-              </span>
+            <li className="leading-relaxed ps-1 marker:text-emerald-400">
+              <span className="text-gray-500">Needs: </span>
+              {teamAnalysis.trade_targets.needs.join(", ")}
             </li>
           ) : null}
           {!llm &&
             teamAnalysis.candidate_actions.length === 0 &&
             !(teamAnalysis.trade_targets?.needs?.length) && (
-              <li className="flex items-start gap-2">
-                <span className="text-blue-400 mt-1">•</span>
-                <span>Run the LLM step on Trade Analyzer for prioritized move ideas.</span>
+              <li className="leading-relaxed ps-1">
+                Run the LLM step on Trade Analyzer for prioritized move ideas.
               </li>
             )}
         </ul>
@@ -409,18 +374,56 @@ export function TeamAnalysisResults({ teamAnalysis, llm }: TeamAnalysisResultsPr
         <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-4 text-sm text-gray-300">
           <h2 className="text-white font-medium mb-2">Top trade targets (LLM)</h2>
           <p className="text-gray-400 mb-3">{llm.summary}</p>
-          <ol className="list-decimal list-inside space-y-2">
+          <ol className="list-decimal list-outside pl-5 space-y-2 [&>li]:marker:text-emerald-400/90">
             {llm.top_three_targets.map((t) => (
-              <li key={`${t.rank}-${t.name}`}>
+              <li key={`${t.rank}-${t.name}`} className="pl-1 leading-relaxed">
                 <span className="text-white font-medium">{t.name}</span>
-                <p className="text-gray-400 text-xs mt-0.5 ml-4">{t.why_fit}</p>
-                <p className="text-gray-500 text-xs mt-0.5 ml-4">{t.trade_construction}</p>
+                <p className="text-gray-400 text-xs mt-0.5">{t.why_fit}</p>
+                <p className="text-gray-500 text-xs mt-0.5">{t.trade_construction}</p>
               </li>
             ))}
           </ol>
           <p className="text-xs text-gray-500 mt-3">{llm.constraint_acknowledgment}</p>
         </div>
       )}
+
+      {!llm?.top_three_targets?.length &&
+        (teamAnalysis.trade_targets?.candidates?.length ?? 0) > 0 && (
+          <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-4 text-sm text-gray-300">
+            <h2 className="text-white font-medium mb-2 flex items-center gap-2">
+              <Target className="w-4 h-4 text-emerald-400 shrink-0" />
+              Players to target
+            </h2>
+            <p className="text-gray-400 text-xs mb-3">
+              {llm
+                ? "LLM did not return ranked targets; showing deterministic candidates instead."
+                : "Ranked by fit for your build (deterministic). If the LLM step failed (e.g. missing API key), you still get these picks."}
+            </p>
+            <ol className="list-decimal list-outside pl-5 space-y-3 [&>li]:marker:text-emerald-400/90">
+              {(teamAnalysis.trade_targets?.candidates ?? []).slice(0, 12).map((c) => (
+                <li key={c.player_id} className="pl-1 leading-relaxed">
+                  <span className="text-white font-medium">{c.name}</span>
+                  <span className="text-gray-500 text-xs ml-2">
+                    {c.position}
+                    {c.team ? ` · ${c.team}` : ""}
+                  </span>
+                  <p className="text-gray-400 text-xs mt-0.5">
+                    Fit {c.fit_score.toFixed(2)} · value {c.trade_value.toFixed(1)}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+      {!llm?.top_three_targets?.length &&
+        teamAnalysis.trade_targets &&
+        teamAnalysis.trade_targets.candidates.length === 0 &&
+        teamAnalysis.trade_targets.summary_for_prompt?.note && (
+          <div className="rounded-lg border border-amber-900/40 bg-amber-950/20 p-4 text-sm text-amber-100/90">
+            {teamAnalysis.trade_targets.summary_for_prompt.note}
+          </div>
+        )}
     </div>
   );
 }
